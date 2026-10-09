@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { isAxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../context/AuthContext";
@@ -7,8 +8,8 @@ export function LoginPage(): JSX.Element {
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("Admin@123");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -17,7 +18,11 @@ export function LoginPage(): JSX.Element {
     try {
       await login(username, password);
       navigate("/");
-    } catch {
+    } catch (error: unknown) {
+      if (isAxiosError<{ detail?: string }>(error)) {
+        setError(error.response?.data?.detail ?? "Invalid username or password");
+        return;
+      }
       setError("Login failed. Check credentials.");
     }
   };
@@ -28,11 +33,11 @@ export function LoginPage(): JSX.Element {
         <h2>Sign In</h2>
         <p className="muted">Use seeded admin account for first login.</p>
         <label>
-          Username
+          <span>Username</span>
           <input value={username} onChange={(e) => setUsername(e.target.value)} />
         </label>
         <label>
-          Password
+          <span>Password</span>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </label>
         {error ? <p className="error">{error}</p> : null}
