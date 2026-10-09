@@ -23,7 +23,7 @@ export function LoginPage(): JSX.Element {
         setError(error.response?.data?.detail ?? "Invalid username or password");
         return;
       }
-      setError("Login failed. Check credentials.");
+      setError("Invalid username or password");
     }
   };
 

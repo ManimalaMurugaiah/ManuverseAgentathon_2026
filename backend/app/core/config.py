@@ -9,6 +9,8 @@ class Settings(BaseSettings):
 
     secret_key: str = "replace-me"
     access_token_expire_minutes: int = 120
+    max_failed_login_attempts: int = 5
+    lockout_minutes: int = 15
 
     database_url: str
     redis_url: str = "redis://localhost:6379/0"

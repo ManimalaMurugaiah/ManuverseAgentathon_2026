@@ -7,7 +7,7 @@ interface AuthContextValue {
   user: UserInfo | null;
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -45,7 +45,12 @@ export function AuthProvider({ children }: Readonly<{ children: React.ReactNode 
     setUser(meResponse.data);
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await api.post("/auth/logout");
+    } catch {
+      // Always clear local auth state even if backend revoke call fails.
+    }
     localStorage.removeItem("access_token");
     setUser(null);
   };

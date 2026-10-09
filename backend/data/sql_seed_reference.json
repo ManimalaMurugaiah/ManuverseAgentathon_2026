@@ -1,0 +1,160 @@
+{
+  "roles": [
+    "SuperAdmin",
+    "ProcessAdmin",
+    "ProjectManager",
+    "EngineeringLead",
+    "ProcurementLead",
+    "PlantEngineering",
+    "GovernanceManager",
+    "AgentAdministrator",
+    "Executive",
+    "Auditor",
+    "Viewer"
+  ],
+  "stages": [
+    { "name": "Design Freeze", "sequence": 1 },
+    { "name": "Drawing Approval", "sequence": 2 },
+    { "name": "PO Release", "sequence": 3 },
+    { "name": "Vendor Manufacturing", "sequence": 4 },
+    { "name": "FAT", "sequence": 5 },
+    { "name": "Shipment", "sequence": 6 },
+    { "name": "Site Readiness", "sequence": 7 },
+    { "name": "Equipment Delivery", "sequence": 8 },
+    { "name": "Installation", "sequence": 9 },
+    { "name": "Mechanical Completion", "sequence": 10 },
+    { "name": "SAT", "sequence": 11 },
+    { "name": "Commissioning", "sequence": 12 },
+    { "name": "Production Handover", "sequence": 13 }
+  ],
+  "governance_rules": [
+    {
+      "rule_code": "GOV-ENG-001",
+      "rule_name": "Design Freeze Delayed > 2 Days",
+      "category": "Engineering",
+      "severity": "Amber",
+      "condition": { "DelayDays": 2 },
+      "action": { "Notify": "EngineeringLead" }
+    },
+    {
+      "rule_code": "GOV-ENG-002",
+      "rule_name": "Drawing Approval Delayed > 5 Days",
+      "category": "Engineering",
+      "severity": "Red",
+      "condition": { "DelayDays": 5 },
+      "action": { "Escalate": "ProjectManager" }
+    },
+    {
+      "rule_code": "GOV-PROC-001",
+      "rule_name": "PO Release Delayed > 3 Days",
+      "category": "Procurement",
+      "severity": "Amber",
+      "condition": { "DelayDays": 3 },
+      "action": { "Notify": "ProcurementLead" }
+    },
+    {
+      "rule_code": "GOV-PROC-002",
+      "rule_name": "Vendor Manufacturing Delayed",
+      "category": "Procurement",
+      "severity": "Red",
+      "condition": { "DelayDays": 5 },
+      "action": { "Escalate": "ProjectManager" }
+    },
+    {
+      "rule_code": "GOV-LOG-001",
+      "rule_name": "Shipment Delayed",
+      "category": "Logistics",
+      "severity": "High",
+      "condition": { "DelayDays": 3 },
+      "action": { "Notify": "ProjectManager" }
+    },
+    {
+      "rule_code": "GOV-SITE-001",
+      "rule_name": "Site Readiness Incomplete",
+      "category": "Site",
+      "severity": "High",
+      "condition": { "Readiness": "Incomplete" },
+      "action": { "Block": "Installation" }
+    },
+    {
+      "rule_code": "GOV-INST-001",
+      "rule_name": "Installation Delayed",
+      "category": "Execution",
+      "severity": "Red",
+      "condition": { "DelayDays": 3 },
+      "action": { "Escalate": "PlantManager" }
+    },
+    {
+      "rule_code": "GOV-MECH-001",
+      "rule_name": "Mechanical Completion Delayed",
+      "category": "Execution",
+      "severity": "High",
+      "condition": { "DelayDays": 2 },
+      "action": { "Notify": "ProjectManager" }
+    },
+    {
+      "rule_code": "GOV-SAT-001",
+      "rule_name": "SAT Delayed",
+      "category": "Testing",
+      "severity": "Critical",
+      "condition": { "DelayDays": 2 },
+      "action": { "Escalate": "PlantManager" }
+    },
+    {
+      "rule_code": "GOV-COM-001",
+      "rule_name": "Commissioning Delayed",
+      "category": "Commissioning",
+      "severity": "Critical",
+      "condition": { "DelayDays": 1 },
+      "action": { "Escalate": "SteeringCommittee" }
+    },
+    {
+      "rule_code": "GOV-HO-001",
+      "rule_name": "Production Handover Delayed",
+      "category": "Operations",
+      "severity": "Critical",
+      "condition": { "DelayDays": 1 },
+      "action": { "Escalate": "SteeringCommittee" }
+    },
+    {
+      "rule_code": "GOV-EHS-001",
+      "rule_name": "Safety Clearance Missing",
+      "category": "Safety",
+      "severity": "Critical",
+      "condition": { "SafetyClearance": "Missing" },
+      "action": { "Action": "BlockActivity" }
+    },
+    {
+      "rule_code": "GOV-ACT-001",
+      "rule_name": "Action Due Tomorrow",
+      "category": "Action",
+      "severity": "Medium",
+      "condition": { "DaysRemaining": 1 },
+      "action": { "Action": "Reminder" }
+    },
+    {
+      "rule_code": "GOV-ACT-002",
+      "rule_name": "Action Overdue > 48 Hours",
+      "category": "Action",
+      "severity": "High",
+      "condition": { "OverdueHours": 48 },
+      "action": { "Escalate": "ProjectManager" }
+    },
+    {
+      "rule_code": "GOV-AGT-001",
+      "rule_name": "Agent Timeout",
+      "category": "Agent",
+      "severity": "High",
+      "condition": { "TimeoutSeconds": 30 },
+      "action": { "Action": "StopAgent" }
+    },
+    {
+      "rule_code": "GOV-AGT-002",
+      "rule_name": "Agent Failure > 3",
+      "category": "Agent",
+      "severity": "Critical",
+      "condition": { "FailureCount": 3 },
+      "action": { "Action": "DisableAgent" }
+    }
+  ]
+}

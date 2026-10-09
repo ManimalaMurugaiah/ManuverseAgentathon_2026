@@ -6,6 +6,7 @@ from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.token_store import is_token_revoked
 from app.db.session import get_db
 from app.models.user import User
 
@@ -17,6 +18,9 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
     )
+
+    if is_token_revoked(token):
+        raise credentials_exception
 
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])

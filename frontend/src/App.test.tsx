@@ -15,6 +15,6 @@ describe("App", () => {
       </BrowserRouter>,
     );
 
-    expect(screen.getByText(/checking session/i)).toBeInTheDocument();
+    expect(screen.getByText(/checking session/i)).toBeTruthy();
   });
 });

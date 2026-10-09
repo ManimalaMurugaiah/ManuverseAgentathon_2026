@@ -96,6 +96,39 @@ cd frontend
 npm run test
 ```
 
+## SQL Governance Agent (v2)
+
+Added SQL-aligned governance evaluation package and APIs:
+
+- Package: `backend/project_delivery_ai/`
+- Seed reference: `backend/data/sql_seed_reference.json`
+- Governance docs: `backend/docs/SQL_SCHEMA_GAP_AND_MAPPING.md`
+
+API endpoints:
+
+- `POST /api/v1/governance/evaluate`
+- `GET /api/v1/governance/reference`
+
+Example request:
+
+```json
+{
+	"facts": {
+		"DelayDays": 6,
+		"SafetyClearance": "Missing"
+	}
+}
+```
+
+## Security Additions
+
+Implemented POC-level controls:
+
+- No hard-coded frontend credentials in login page
+- Invalid-credentials response for mismatched login
+- Account lockout after repeated failed attempts
+- Token revocation on logout (`POST /api/v1/auth/logout`)
+
 ## Workflow Coverage
 
 The backend includes a staged internal workflow and agent roles aligned to the architecture diagram:
