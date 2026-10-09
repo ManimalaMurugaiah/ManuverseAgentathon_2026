@@ -52,7 +52,7 @@ This starts Redis and Ollama containers.
 Update `backend/.env`:
 
 ```env
-DATABASE_URL=mssql+pyodbc://@localhost\\(localdb)\\MSSQLLocalDB/ManuverseDB?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes&TrustServerCertificate=yes
+DATABASE_URL=mssql+pyodbc:///?odbc_connect=DRIVER%3D%7BODBC+Driver+17+for+SQL+Server%7D%3BSERVER%3D%28localdb%29%5CMSSQLLocalDB%3BDATABASE%3DManuverseDB%3BTrusted_Connection%3Dyes%3BTrustServerCertificate%3Dyes%3B
 ```
 
 This uses Windows Authentication (trusted connection) against LocalDB instance:
@@ -64,7 +64,7 @@ This uses Windows Authentication (trusted connection) against LocalDB instance:
 If you prefer SQL Server Express named instance instead:
 
 ```env
-DATABASE_URL=mssql+pyodbc://@localhost\\SQLEXPRESS/ManuverseDB?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes&TrustServerCertificate=yes
+DATABASE_URL=mssql+pyodbc:///?odbc_connect=DRIVER%3D%7BODBC+Driver+17+for+SQL+Server%7D%3BSERVER%3Dlocalhost%5CSQLEXPRESS%3BDATABASE%3DManuverseDB%3BTrusted_Connection%3Dyes%3BTrustServerCertificate%3Dyes%3B
 ```
 
 Optional check command:

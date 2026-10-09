@@ -7,6 +7,9 @@ from app.models.user import User
 def seed_defaults(db: Session) -> None:
     existing_admin = db.query(User).filter(User.username == "admin").first()
     if existing_admin:
+        if existing_admin.role != "admin":
+            existing_admin.role = "admin"
+            db.commit()
         return
 
     admin = User(username="admin", password_hash=get_password_hash("Admin@123"), role="admin")
