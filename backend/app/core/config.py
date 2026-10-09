@@ -8,9 +8,13 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     secret_key: str = "replace-me"
-    access_token_expire_minutes: int = 120
+    access_token_expire_minutes: int = 15
+    refresh_token_expire_minutes: int = 10080
     max_failed_login_attempts: int = 5
     lockout_minutes: int = 15
+    max_request_size_bytes: int = 1048576
+    rate_limit_window_seconds: int = 60
+    rate_limit_max_requests: int = 120
 
     database_url: str
     redis_url: str = "redis://localhost:6379/0"

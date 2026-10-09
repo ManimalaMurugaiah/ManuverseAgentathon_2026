@@ -29,6 +29,7 @@ export function AuthProvider({ children }: Readonly<{ children: React.ReactNode 
         setUser(data);
       } catch {
         localStorage.removeItem("access_token");
+        localStorage.removeItem("refresh_token");
       } finally {
         setLoading(false);
       }
@@ -38,20 +39,26 @@ export function AuthProvider({ children }: Readonly<{ children: React.ReactNode 
   }, []);
 
   const login = async (username: string, password: string) => {
-    const tokenResponse = await api.post<{ access_token: string }>("/auth/login", { username, password });
+    const tokenResponse = await api.post<{ access_token: string; refresh_token: string }>("/auth/login", { username, password });
     localStorage.setItem("access_token", tokenResponse.data.access_token);
+    localStorage.setItem("refresh_token", tokenResponse.data.refresh_token);
 
     const meResponse = await api.get<UserInfo>("/auth/me");
     setUser(meResponse.data);
   };
 
   const logout = async () => {
+    const refreshToken = localStorage.getItem("refresh_token");
     try {
       await api.post("/auth/logout");
+      if (refreshToken) {
+        await api.post("/auth/logout-refresh", { refresh_token: refreshToken });
+      }
     } catch {
       // Always clear local auth state even if backend revoke call fails.
     }
     localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
     setUser(null);
   };
 

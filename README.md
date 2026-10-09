@@ -129,6 +129,21 @@ Implemented POC-level controls:
 - Account lockout after repeated failed attempts
 - Token revocation on logout (`POST /api/v1/auth/logout`)
 
+Additional implemented controls:
+
+- Refresh token rotation (`POST /api/v1/auth/refresh`)
+- Request correlation IDs (`X-Request-ID`)
+- Rate limiting and request-size enforcement middleware
+- Security headers middleware (CSP, X-Frame-Options, etc.)
+- Generic error responses for validation and internal failures
+- Audit request logging with masked auth metadata
+- Object-level authorization checks for workflow runs
+
+Section 22 implementation and threat model docs:
+
+- `backend/docs/SECTION22_IMPLEMENTATION.md`
+- `backend/docs/THREAT_MODEL_STRIDE.md`
+
 ## Workflow Coverage
 
 The backend includes a staged internal workflow and agent roles aligned to the architecture diagram:
@@ -145,3 +160,25 @@ The backend includes a staged internal workflow and agent roles aligned to the a
 - SAT
 - Commissioning
 - Production Handover
+
+## Automatic Workflow Agent
+
+Trigger automatic stage progression through API:
+
+- POST /api/v1/workflow/auto/process
+
+Request body options:
+
+- `run_id` (optional): process one run
+- `max_steps`: number of approved steps to auto-advance
+- `note`: log note for auto-agent actions
+
+Example body:
+
+```json
+{
+	"run_id": 4,
+	"max_steps": 2,
+	"note": "Auto agent test"
+}
+```

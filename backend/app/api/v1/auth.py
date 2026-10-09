@@ -10,13 +10,17 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.api.deps import oauth2_scheme
 from app.core.config import settings
-from app.core.security import create_access_token, verify_password
+from app.core.refresh_store import is_refresh_token_active
+from app.core.refresh_store import revoke_refresh_token
+from app.core.refresh_store import store_refresh_token
+from app.core.security import create_access_token, create_refresh_token, decode_token, verify_password
 from app.core.token_store import revoke_token
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.auth import LoginRequest, Token
+from app.schemas.auth import LoginRequest, RefreshTokenRequest, Token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+INVALID_REFRESH_TOKEN = "Invalid refresh token"
 
 _failed_attempts: dict[str, int] = {}
 _lockouts_until: dict[str, datetime] = {}
@@ -67,12 +71,50 @@ def login(payload: LoginRequest, db: Annotated[Session, Depends(get_db)]) -> Tok
 
     _reset_auth_state(username)
 
+    refresh_token = create_refresh_token(subject=user.username)
+    refresh_exp = datetime.now(timezone.utc) + timedelta(minutes=settings.refresh_token_expire_minutes)
+    store_refresh_token(refresh_token, refresh_exp)
+
     token = create_access_token(
         subject=user.username,
         role=user.role,
         expires_delta=timedelta(minutes=settings.access_token_expire_minutes),
     )
-    return Token(access_token=token)
+    return Token(access_token=token, refresh_token=refresh_token)
+
+
+@router.post("/refresh", responses={401: {"description": "Invalid refresh token"}})
+def refresh_token(payload: RefreshTokenRequest, db: Annotated[Session, Depends(get_db)]) -> Token:
+    if not is_refresh_token_active(payload.refresh_token):
+        raise HTTPException(status_code=401, detail=INVALID_REFRESH_TOKEN)
+
+    try:
+        decoded = decode_token(payload.refresh_token)
+    except Exception as exc:  # pragma: no cover - guarded response
+        raise HTTPException(status_code=401, detail=INVALID_REFRESH_TOKEN) from exc
+
+    if decoded.get("type") != "refresh":
+        raise HTTPException(status_code=401, detail=INVALID_REFRESH_TOKEN)
+
+    username = decoded.get("sub")
+    if not username:
+        raise HTTPException(status_code=401, detail=INVALID_REFRESH_TOKEN)
+
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=401, detail=INVALID_REFRESH_TOKEN)
+
+    revoke_refresh_token(payload.refresh_token)
+    next_refresh = create_refresh_token(subject=user.username)
+    next_refresh_exp = datetime.now(timezone.utc) + timedelta(minutes=settings.refresh_token_expire_minutes)
+    store_refresh_token(next_refresh, next_refresh_exp)
+
+    access = create_access_token(
+        subject=user.username,
+        role=user.role,
+        expires_delta=timedelta(minutes=settings.access_token_expire_minutes),
+    )
+    return Token(access_token=access, refresh_token=next_refresh)
 
 
 @router.get("/me")
@@ -84,3 +126,9 @@ def me(user: Annotated[User, Depends(get_current_user)]) -> dict[str, str]:
 def logout(token: Annotated[str, Depends(oauth2_scheme)]) -> dict[str, str]:
     revoke_token(token)
     return {"message": "Logged out"}
+
+
+@router.post("/logout-refresh")
+def logout_refresh(payload: RefreshTokenRequest) -> dict[str, str]:
+    revoke_refresh_token(payload.refresh_token)
+    return {"message": "Refresh token revoked"}
