@@ -7,8 +7,15 @@ type ReportTab = "Project Health" | "Milestone Report" | "Risk Report" | "Action
 type ReportPeriod = "Daily" | "Weekly" | "Monthly" | "Yearly";
 type ReportInterval = "Day" | "Week" | "Month" | "Year";
 type ReportFormat = "PDF" | "Excel";
+type ReportLibraryTab = "Standard reports" | "Saved reports" | "Scheduled reports" | "Custom reports";
 
 const reportTabs: ReportTab[] = ["Project Health", "Milestone Report", "Risk Report", "Action Report", "Dependency Report"];
+const reportLibraryTabs: ReportLibraryTab[] = ["Standard reports", "Saved reports", "Scheduled reports", "Custom reports"];
+const recentReports = [
+  { title: "Project health overview", type: "Project Health" as ReportTab, createdBy: "Ravi K.", date: "15 Oct 2026" },
+  { title: "Risk and issue analysis", type: "Risk Report" as ReportTab, createdBy: "Anita S.", date: "14 Oct 2026" },
+  { title: "Agent performance", type: "Action Report" as ReportTab, createdBy: "Priya S.", date: "13 Oct 2026" },
+];
 const reportProjects = ["PRJ-001", "PRJ-002"];
 const milestoneRows = [
   { milestone: "Engineering Approval", planned: "10 Oct 2026", owner: "Ravi", status: "At Risk" },
@@ -219,6 +226,13 @@ export function ReportsPage(): JSX.Element {
   const [project, setProject] = useState(globalProject || reportProjects[0]);
   const [period, setPeriod] = useState<ReportPeriod>("Weekly");
   const [tab, setTab] = useState<ReportTab>("Project Health");
+  const [libraryTab, setLibraryTab] = useState<ReportLibraryTab>("Standard reports");
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [scheduled, setScheduled] = useState(true);
+  const [showScheduleForm, setShowScheduleForm] = useState(false);
+  const [scheduleName, setScheduleName] = useState("");
+  const [scheduleFrequency, setScheduleFrequency] = useState("Weekly");
+  const [scheduledReportName, setScheduledReportName] = useState("Weekly project health summary");
   const [exportMessage, setExportMessage] = useState("");
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
   const [reportInterval, setReportInterval] = useState<ReportInterval>("Week");
@@ -318,54 +332,80 @@ export function ReportsPage(): JSX.Element {
     }
   };
 
+  const openReportDialog = (format?: ReportFormat): void => {
+    setExportMessage("");
+    setIsPreviewVisible(false);
+    if (format) setReportFormat(format);
+    setIsReportDialogOpen(true);
+  };
+
+  const openSavedReport = (reportType: ReportTab): void => {
+    setTab(reportType);
+    openReportDialog();
+  };
+
+  const saveSchedule = (event: React.FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    setScheduledReportName(scheduleName.trim());
+    setScheduled(true);
+    setShowScheduleForm(false);
+    setScheduleName("");
+    setExportMessage(`${scheduleFrequency} report schedule saved.`);
+  };
+
   return (
-    <section className="feature-page reports-page">
+    <section className="feature-page reports-page screenshot-reports-page">
       <header className="feature-heading">
-        <div><span className="eyebrow">PROJECT INTELLIGENCE · DEMO DATA</span><h1>Reports</h1><p>Understand project health, milestones, risks, and actions at a glance.</p></div>
-        <div className="report-controls">
-          <label className="report-select"><span>Project</span><select value={project} onChange={(event) => setProject(event.target.value)}>{reportProjects.map((code) => <option key={code}>{code}</option>)}</select></label>
-          <button type="button" className="primary-button report-export-primary" onClick={() => { setExportMessage(""); setIsPreviewVisible(false); setIsReportDialogOpen(true); }}><span aria-hidden="true">⤓</span> Download Report</button>
+        <div><h1>Reports &amp; analytics</h1><p>Generate insights and track performance · {project}</p></div>
+        <div className="report-heading-actions">
+          <div className="report-export-menu-wrap">
+            <button type="button" className="secondary-button" aria-expanded={exportMenuOpen} onClick={() => setExportMenuOpen((open) => !open)}>Export⌄</button>
+            {exportMenuOpen ? <div className="report-export-menu" role="menu" aria-label="Export format"><button type="button" role="menuitem" onClick={() => { setExportMenuOpen(false); openReportDialog("PDF"); }}>Export as PDF</button><button type="button" role="menuitem" onClick={() => { setExportMenuOpen(false); openReportDialog("Excel"); }}>Export as Excel</button></div> : null}
+          </div>
+          <button type="button" className="primary-button report-generate-button" aria-label="Generate report" onClick={() => openReportDialog()}>＋ Generate report</button>
         </div>
       </header>
-      <div className="demo-data-note"><span aria-hidden="true">ⓘ</span> Illustrative sample report · {displayRange} · Values are for preview only.</div>
       {exportMessage ? <p className="export-feedback" role="status">{exportMessage}</p> : null}
 
-      <nav className="report-tabs feature-card" role="tablist" aria-label="Report type">
-        {reportTabs.map((item, index) => <button key={item} type="button" role="tab" aria-selected={tab === item} className={tab === item ? "is-selected" : ""} onClick={() => { setTab(item); setExportMessage(""); }}><span aria-hidden="true">{["◉", "▦", "⚠", "✓", "⌘"][index]}</span>{item}</button>)}
+      <nav className="report-library-tabs" role="tablist" aria-label="Report library">
+        {reportLibraryTabs.map((item) => <button key={item} type="button" role="tab" aria-selected={libraryTab === item} className={libraryTab === item ? "is-selected" : ""} onClick={() => setLibraryTab(item)}>{item}</button>)}
       </nav>
 
-      <div className="feature-metrics report-metrics">
-        <article className="feature-metric metric-green"><span>On track</span><strong>{stats.onTrack}</strong><small>Milestones progressing</small></article>
-        <article className="feature-metric metric-amber"><span>At risk</span><strong>{stats.atRisk}</strong><small>Need attention</small></article>
-        <article className="feature-metric metric-red"><span>Delayed</span><strong>{stats.delayed}</strong><small>Behind planned date</small></article>
-        <article className="feature-metric metric-blue"><span>Total milestones</span><strong>{stats.milestones}</strong><small>In this reporting period</small></article>
-      </div>
-
-      <div className="report-content-grid">
-        <section className="feature-card report-trend-card">
-          <div className="feature-card-heading"><div><h2>{tab} overview</h2><p>{project} · {period} summary</p></div><span className="report-period-badge">{period}</span></div>
-          <ReportTrendChart period={period} stats={stats} />
-          <div className="chart-legend"><span><i className="chart-on-track" />On track</span><span><i className="chart-at-risk" />At risk</span><span><i className="chart-delayed" />Delayed</span></div>
-          <div className="report-narrative"><strong>What this means</strong><p>{stats.onTrack} milestones are on track. Review the {stats.atRisk} at-risk items and assign owners to reduce schedule pressure{stats.delayed ? `; ${stats.delayed} ${stats.delayed === 1 ? "item is" : "items are"} already delayed` : ""}.</p></div>
-        </section>
-
-        <section className="feature-card report-highlights-card">
-          <div className="feature-card-heading"><div><h2>{tab === "Risk Report" ? "Top risks" : tab === "Action Report" ? "Priority actions" : tab === "Dependency Report" ? "Key dependencies" : "Key milestones"}</h2><p>Items to review for {project}</p></div></div>
-          <div className="report-highlight-list">
-            {(tab === "Risk Report" ? projectRisks.slice(0, 4).map((risk) => ({ title: risk.title, detail: `${risk.line} · ${risk.owner}`, status: risk.severity }))
-              : tab === "Action Report" ? projectActions.slice(0, 4).map((action) => ({ title: action.title, detail: `${action.owner} · due ${action.dueDate}`, status: action.status }))
-                : tab === "Dependency Report" ? dependencyRows.map((dependency) => ({ title: dependency.dependency, detail: `${dependency.owner} · ${dependency.due}`, status: dependency.status }))
-                  : milestoneRows.map((milestone) => ({ title: milestone.milestone, detail: `${milestone.owner} · ${milestone.planned}`, status: milestone.status })).slice(0, 4)
-            ).map((item, index) => (
-              <article className="report-highlight" key={`${item.title}-${index}`}>
-                <span className="highlight-rank">{index + 1}</span><span className="highlight-copy"><strong>{item.title}</strong><small>{item.detail}</small></span><span className={`status-pill status-${item.status.toLowerCase().replace(" ", "-")}`}>{item.status}</span>
-              </article>
-            ))}
-            {tab === "Risk Report" && projectRisks.length === 0 ? <p className="muted">No demo risks for this project.</p> : null}
-            {tab === "Action Report" && projectActions.length === 0 ? <p className="muted">No demo actions for this project.</p> : null}
+      {libraryTab === "Standard reports" ? (
+        <>
+          <div className="standard-report-grid">
+            <section className="feature-card standard-report-card"><h2>Project performance</h2><div className="performance-chart" role="img" aria-label="Project performance across five projects"><span style={{ height: "76%" }} title="Project 1: 76%" /><span className="performance-bar--amber" style={{ height: "49%" }} title="Project 2: 49%" /><span className="performance-bar--red" style={{ height: "24%" }} title="Project 3: 24%" /><span style={{ height: "61%" }} title="Project 4: 61%" /><span style={{ height: "34%" }} title="Project 5: 34%" /></div><div className="performance-labels"><span>P1</span><span>P2</span><span>P3</span><span>P4</span><span>P5</span></div><p className="chart-footnote">Current delivery score across active projects</p></section>
+            <section className="feature-card standard-report-card"><h2>Budget utilization</h2><div className="budget-chart-wrap"><div className="budget-donut" role="img" aria-label="64 percent of project budget spent"><strong>64%</strong></div><div className="budget-labels"><span>Spent<strong>$118.5M</strong></span><span>Of budget<strong>$185.2M</strong></span></div></div></section>
+            <section className="feature-card standard-report-card"><div className="feature-card-heading"><h2>Milestone trend</h2><span className="milestone-trend-legend"><i />Planned <b />Actual</span></div><svg className="milestone-trend-chart" viewBox="0 0 300 160" role="img" aria-label="Planned and actual milestone trend"><path d="M25 135 H290 M25 95 H290 M25 55 H290 M25 15 H290" className="chart-grid-line" /><polyline points="25,128 80,100 135,77 190,54 245,30 280,14" className="trend-planned-line" /><polyline points="25,130 80,112 135,96 190,82 245,66 280,48" className="trend-actual-line" />{[[25,130],[80,112],[135,96],[190,82],[245,66],[280,48]].map(([x,y]) => <circle key={x} cx={x} cy={y} r="3.5" className="trend-actual-point" />)}</svg><div className="trend-axis-labels"><span>Oct 1</span><span>Oct 11</span><span>Oct 21</span><span>Oct 31</span></div></section>
           </div>
+          <section className="feature-card recent-reports-card">
+            <div className="feature-card-heading"><h2>Recent reports</h2><span className="record-count">{recentReports.length} reports</span></div>
+            <div className="responsive-table-wrap"><table className="feature-table recent-reports-table"><thead><tr><th>Report</th><th>Type</th><th>Created by</th><th>Date</th><th>Status</th><th>Open</th></tr></thead><tbody>{recentReports.map((report) => <tr key={report.title}><td><strong>{report.title}</strong></td><td>Project performance</td><td>{report.createdBy}</td><td>{report.date}</td><td><span className="status-pill status-completed">Completed</span></td><td><button type="button" className="table-action-button" onClick={() => openSavedReport(report.type)}>Open</button></td></tr>)}</tbody></table></div>
+          </section>
+        </>
+      ) : null}
+
+      {libraryTab === "Saved reports" ? (
+        <section className="feature-card report-library-panel"><div className="feature-card-heading"><div><h2>Saved reports</h2><p>Open a report to review or export its latest data.</p></div></div><div className="report-highlight-list">{recentReports.map((report) => <article className="report-highlight" key={report.title}><span className="highlight-rank">▤</span><span className="highlight-copy"><strong>{report.title}</strong><small>{report.type} · saved {report.date}</small></span><button type="button" className="table-action-button" onClick={() => openSavedReport(report.type)}>Open report</button></article>)}</div></section>
+      ) : null}
+
+      {libraryTab === "Scheduled reports" ? (
+        <section className="feature-card report-library-panel">
+          <div className="feature-card-heading"><div><h2>Scheduled reports</h2><p>Manage recurring report delivery.</p></div><button type="button" className="secondary-button" onClick={() => setShowScheduleForm((show) => !show)}>＋ Add schedule</button></div>
+          {showScheduleForm ? (
+            <form className="schedule-form" onSubmit={saveSchedule}>
+              <label>Report name<input required maxLength={80} value={scheduleName} onChange={(event) => setScheduleName(event.target.value)} placeholder="e.g. Monthly project health" /></label>
+              <label>Frequency<select value={scheduleFrequency} onChange={(event) => setScheduleFrequency(event.target.value)}><option>Weekly</option><option>Monthly</option></select></label>
+              <button type="submit" className="primary-button">Save schedule</button>
+            </form>
+          ) : null}
+          <article className="scheduled-report-row"><span><strong>{scheduledReportName}</strong><small>{scheduleFrequency} · Project managers · PDF</small></span><span className={`status-pill ${scheduled ? "status-completed" : "status-monitoring"}`}>{scheduled ? "Active" : "Paused"}</span><button type="button" className="table-action-button" onClick={() => setScheduled((active) => !active)}>{scheduled ? "Pause" : "Resume"}</button></article>
         </section>
-      </div>
+      ) : null}
+
+      {libraryTab === "Custom reports" ? (
+        <section className="feature-card report-library-panel custom-report-panel"><div className="feature-card-heading"><div><h2>Custom reports</h2><p>Choose a report subject and reporting period before generating a tailored export.</p></div></div><div className="custom-report-fields"><label>Report subject<select value={tab} onChange={(event) => setTab(event.target.value as ReportTab)}>{reportTabs.map((item) => <option key={item}>{item}</option>)}</select></label><label>Summary period<select value={period} onChange={(event) => setPeriod(event.target.value as ReportPeriod)}>{(["Daily", "Weekly", "Monthly", "Yearly"] as ReportPeriod[]).map((item) => <option key={item}>{item}</option>)}</select></label><button type="button" className="primary-button" onClick={() => openReportDialog()}>Generate custom report</button></div></section>
+      ) : null}
 
       {isReportDialogOpen ? (
         <div className="modal-backdrop report-modal-backdrop">

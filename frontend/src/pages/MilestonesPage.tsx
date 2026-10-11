@@ -1,400 +1,172 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { useMemo, useState } from "react";
 
-import api from "../api/client";
-import { getApiErrorMessage } from "../api/errors";
-import { Modal } from "../components/Modal";
-import { ProgressBar, StatusPill, barTone, formatDate } from "../components/ProjectUi";
-import { useAuth } from "../context/AuthContext";
-import type { ApprovalWorkflow, Milestone, MilestoneList, MilestoneStatus, ProjectList, Role } from "../types";
+type MilestoneStatus = "Completed" | "In progress" | "Not started";
+type MilestonePhase = "All phases" | "Engineering" | "Procurement" | "Delivery" | "Installation";
 
-const STATUSES: MilestoneStatus[] = ["Not Started", "In Progress", "Completed", "Delayed", "At Risk"];
-const WRITE_ROLES: Role[] = ["admin", "manager", "engineering"];
-// Mirrors the server-side rules so the Approve button only appears for permitted roles.
-const STEP_ROLES: Record<number, Role[]> = {
-  1: ["admin", "manager", "engineering"],
-  2: ["admin", "manager", "engineering"],
-  3: ["admin", "manager", "approver"],
-};
-
-interface MilestoneForm {
+interface Milestone {
+  id: number;
   name: string;
+  date: string;
   owner: string;
-  due_date: string;
   status: MilestoneStatus;
   progress: number;
-  critical: boolean;
+  phase: Exclude<MilestonePhase, "All phases">;
 }
 
-const emptyForm: MilestoneForm = { name: "", owner: "", due_date: "", status: "Not Started", progress: 0, critical: false };
+interface ApprovalStep {
+  id: number;
+  title: string;
+  approver: string;
+  status: "Done" | "Pending" | "Waiting";
+}
 
-function MilestoneModal({ projectId, milestone, onClose, onSaved }: Readonly<{ projectId: number; milestone: Milestone | null; onClose: () => void; onSaved: (id: number) => void }>): JSX.Element {
-  const [form, setForm] = useState<MilestoneForm>(
-    milestone
-      ? { name: milestone.name, owner: milestone.owner ?? "", due_date: milestone.due_date ?? "", status: milestone.status, progress: milestone.progress, critical: milestone.critical }
-      : emptyForm,
+const initialMilestones: Milestone[] = [
+  { id: 1, name: "Engineering Approval", date: "2026-10-10", owner: "Ravi K.", status: "Completed", progress: 100, phase: "Engineering" },
+  { id: 2, name: "PO Release", date: "2026-10-12", owner: "Anita S.", status: "Completed", progress: 100, phase: "Procurement" },
+  { id: 3, name: "Material Delivery", date: "2026-10-25", owner: "Vikram N.", status: "In progress", progress: 60, phase: "Delivery" },
+  { id: 4, name: "Installation", date: "2026-10-30", owner: "Kavitha R.", status: "Not started", progress: 0, phase: "Installation" },
+  { id: 5, name: "Commissioning", date: "2026-11-15", owner: "Michael T.", status: "Not started", progress: 0, phase: "Installation" },
+];
+
+const initialApprovalSteps: ApprovalStep[] = [
+  { id: 1, title: "Evidence submitted", approver: "Vikram N.", status: "Done" },
+  { id: 2, title: "Engineering Lead review", approver: "Engineering Lead", status: "Done" },
+  { id: 3, title: "Procurement approval", approver: "Procurement Lead", status: "Pending" },
+  { id: 4, title: "Milestone closed", approver: "System", status: "Waiting" },
+];
+
+const phases: MilestonePhase[] = ["All phases", "Engineering", "Procurement", "Delivery", "Installation"];
+
+const formatDate = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString("en-GB", {
+  day: "numeric", month: "short", year: "numeric",
+});
+
+export function MilestonesPage(): JSX.Element {
+  const [milestones, setMilestones] = useState(initialMilestones);
+  const [phase, setPhase] = useState<MilestonePhase>("All phases");
+  const [approvalSteps, setApprovalSteps] = useState(initialApprovalSteps);
+  const [showCreate, setShowCreate] = useState(false);
+  const [name, setName] = useState("");
+  const [date, setDate] = useState("");
+  const [owner, setOwner] = useState("");
+  const [newPhase, setNewPhase] = useState<Exclude<MilestonePhase, "All phases">>("Engineering");
+  const [feedback, setFeedback] = useState("");
+  const visibleMilestones = useMemo(
+    () => milestones.filter((milestone) => phase === "All phases" || milestone.phase === phase),
+    [milestones, phase],
   );
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
+  const currentMilestone = milestones.find((milestone) => milestone.status === "In progress") ?? milestones[0];
 
-  const setStatus = (status: MilestoneStatus) =>
-    setForm((current) => {
-      if (status === "Completed") return { ...current, status, progress: 100 };
-      if (status === "Not Started") return { ...current, status, progress: 0 };
-      return { ...current, status, progress: current.progress === 100 ? 90 : current.progress };
-    });
-
-  const setProgress = (value: number) =>
-    setForm((current) => {
-      const progress = Math.min(100, Math.max(0, Number.isFinite(value) ? Math.round(value) : 0));
-      let { status } = current;
-      if (progress === 100) status = "Completed";
-      else if (progress > 0 && status === "Not Started") status = "In Progress";
-      return { ...current, progress, status };
-    });
-
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const addMilestone = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setSaving(true);
-    setError("");
-    const body = { name: form.name.trim(), owner: form.owner.trim(), due_date: form.due_date, status: form.status, progress: form.progress, critical: form.critical };
-    try {
-      const { data } = milestone
-        ? await api.patch<Milestone>(`/milestones/${milestone.id}`, body)
-        : await api.post<Milestone>(`/projects/${projectId}/milestones`, body);
-      onSaved(data.id);
-    } catch (err) {
-      setError(getApiErrorMessage(err, "Could not save the milestone. Check the details and try again."));
-      setSaving(false);
+    setMilestones((current) => [...current, {
+      id: Date.now(),
+      name: name.trim(),
+      date,
+      owner: owner.trim(),
+      status: "Not started",
+      progress: 0,
+      phase: newPhase,
+    }]);
+    setName("");
+    setDate("");
+    setOwner("");
+    setNewPhase("Engineering");
+    setShowCreate(false);
+    setFeedback("Milestone added.");
+  };
+
+  const advanceApproval = (stepId: number) => {
+    setApprovalSteps((steps) => steps.map((step) => step.id === stepId ? { ...step, status: "Done" } : step));
+    const nextPending = approvalSteps.find((step) => step.id > stepId && step.status === "Waiting");
+    if (nextPending) {
+      setApprovalSteps((steps) => steps.map((step) => step.id === nextPending.id ? { ...step, status: "Pending" } : step));
     }
+    setFeedback("Approval recorded.");
   };
 
   return (
-    <Modal eyebrow="MILESTONE" title={milestone ? "Edit milestone" : "Add milestone"} onClose={onClose}>
-      <form className="feature-form" onSubmit={(event) => void submit(event)}>
-        <label>
-          Milestone name
-          <input required minLength={2} maxLength={200} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-        </label>
-        <div className="form-row">
-          <label>
-            Owner
-            <input required maxLength={100} value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })} />
-          </label>
-          <label>
-            Due date
-            <input required type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
-          </label>
-        </div>
-        <div className="form-row">
-          <label>
-            Status
-            <select value={form.status} onChange={(e) => setStatus(e.target.value as MilestoneStatus)}>
-              {STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
-            </select>
-          </label>
-          <label>
-            Progress (%)
-            <input type="number" min={0} max={100} value={form.progress} onChange={(e) => setProgress(e.target.valueAsNumber)} />
-          </label>
-        </div>
-        <label className="pj-check">
-          <input type="checkbox" checked={form.critical} onChange={(e) => setForm({ ...form, critical: e.target.checked })} />
-          Critical path milestone
-        </label>
-        {error ? <p className="pj-alert" role="alert">{error}</p> : null}
-        <div className="modal-actions">
-          <button type="button" className="secondary-button" onClick={onClose}>Cancel</button>
-          <button type="submit" className="primary-button" disabled={saving}>{saving ? "Saving…" : milestone ? "Save changes" : "Add milestone"}</button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-function stepTone(status: string): string {
-  if (status === "Done") return "is-done";
-  if (status === "Pending") return "is-pending";
-  return "";
-}
-
-function dotTone(milestone: Milestone): string {
-  if (milestone.status === "Completed") return "is-done";
-  if (milestone.status === "Delayed") return "is-late";
-  if (milestone.status === "In Progress" || milestone.status === "At Risk") return "is-active";
-  return "";
-}
-
-function MilestonesView({ projectId }: Readonly<{ projectId: number }>): JSX.Element {
-  const { user } = useAuth();
-  const navigate = useNavigate();
-  const role = user?.role;
-  const canWrite = role !== undefined && WRITE_ROLES.includes(role);
-
-  const [data, setData] = useState<MilestoneList | null>(null);
-  const [projects, setProjects] = useState<ProjectList["items"]>([]);
-  const [statusFilter, setStatusFilter] = useState<MilestoneStatus | "">("");
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [approvals, setApprovals] = useState<ApprovalWorkflow | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [panelError, setPanelError] = useState("");
-  const [modal, setModal] = useState<{ milestone: Milestone | null } | null>(null);
-  const [evidenceName, setEvidenceName] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
-
-  useEffect(() => {
-    api.get<ProjectList>("/projects", { params: { page_size: 50 } })
-      .then(({ data: result }) => setProjects(result.items))
-      .catch(() => setProjects([]));
-  }, [reloadKey]);
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    api.get<MilestoneList>(`/projects/${projectId}/milestones`)
-      .then(({ data: result }) => {
-        if (!active) return;
-        setData(result);
-        setError("");
-        setSelectedId((current) => {
-          if (current !== null && result.items.some((m) => m.id === current)) return current;
-          return (result.items.find((m) => m.status !== "Completed") ?? result.items[0])?.id ?? null;
-        });
-      })
-      .catch((err: unknown) => {
-        if (active) setError(getApiErrorMessage(err, "Could not load milestones."));
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [projectId, reloadKey]);
-
-  useEffect(() => {
-    if (selectedId === null) {
-      setApprovals(null);
-      return undefined;
-    }
-    let active = true;
-    setPanelError("");
-    api.get<ApprovalWorkflow>(`/milestones/${selectedId}/approvals`)
-      .then(({ data: result }) => {
-        if (active) setApprovals(result);
-      })
-      .catch((err: unknown) => {
-        if (active) setPanelError(getApiErrorMessage(err, "Could not load the approval workflow."));
-      });
-    return () => {
-      active = false;
-    };
-  }, [selectedId, reloadKey]);
-
-  const items = useMemo(() => data?.items ?? [], [data]);
-  const visible = useMemo(() => (statusFilter ? items.filter((m) => m.status === statusFilter) : items), [items, statusFilter]);
-  const selected = items.find((m) => m.id === selectedId) ?? null;
-  const pending = approvals?.steps.find((s) => s.status === "Pending");
-  const canApprove = pending !== undefined && role !== undefined && (STEP_ROLES[pending.step_no] ?? []).includes(role);
-
-  const act = useCallback(async (request: () => Promise<{ data: ApprovalWorkflow }>, refreshMilestones: boolean) => {
-    setPanelError("");
-    try {
-      const { data: result } = await request();
-      setApprovals(result);
-      if (refreshMilestones) setReloadKey((key) => key + 1);
-      return true;
-    } catch (err) {
-      setPanelError(getApiErrorMessage(err, "That action could not be completed."));
-      return false;
-    }
-  }, []);
-
-  const addEvidence = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (selectedId === null) return;
-    const ok = await act(() => api.post<ApprovalWorkflow>(`/milestones/${selectedId}/evidence`, { file_name: evidenceName.trim() }), false);
-    if (ok) setEvidenceName("");
-  };
-
-  return (
-    <section className="feature-page pj-page">
+    <section className="feature-page milestone-page">
       <header className="feature-heading">
-        <div>
-          <h1>Milestones · {data?.project_name ?? "…"}</h1>
-          <p>Track milestones, progress and approvals</p>
-        </div>
-        <div className="pj-heading-actions">
-          <select className="pj-select" aria-label="Project" value={projectId} onChange={(e) => navigate(`/projects/${e.target.value}/milestones`)}>
-            {projects.some((p) => p.id === projectId) ? null : <option value={projectId}>{data?.project_name ?? "Project"}</option>}
-            {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+        <div><h1>Milestones · Alpha Expansion Plant</h1><p>Track milestones, progress and approvals</p></div>
+        <div className="milestone-heading-actions">
+          <label className="visually-hidden" htmlFor="milestone-phase">Filter milestone phase</label>
+          <select id="milestone-phase" value={phase} onChange={(event) => setPhase(event.target.value as MilestonePhase)}>
+            {phases.map((item) => <option key={item}>{item}</option>)}
           </select>
-          <select className="pj-select" aria-label="Filter by status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as MilestoneStatus | "")}>
-            <option value="">All statuses</option>
-            {STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
-          </select>
-          {canWrite ? (
-            <button type="button" className="primary-button pj-accent" onClick={() => setModal({ milestone: null })}>
-              <span aria-hidden="true">＋</span> Add milestone
-            </button>
-          ) : null}
+          <button type="button" className="milestone-add-button" onClick={() => { setFeedback(""); setShowCreate(true); }}>＋ Add milestone</button>
         </div>
       </header>
+      {feedback ? <p role="status" className="screen-feedback">{feedback}</p> : null}
 
-      {error ? <p className="pj-alert" role="alert">{error}</p> : null}
+      <section className="feature-card milestone-timeline-card" aria-labelledby="milestone-timeline-title">
+        <h2 id="milestone-timeline-title">Timeline</h2>
+        <ol className="milestone-timeline">
+          {visibleMilestones.map((milestone) => (
+            <li key={milestone.id} className={`timeline-stop timeline-stop--${milestone.status.toLowerCase().replace(" ", "-")}`}>
+              <span className="timeline-stop-marker" aria-hidden="true">{milestone.status === "Completed" ? "✓" : ""}</span>
+              <strong>{milestone.name}</strong>
+              <small>{formatDate(milestone.date)}</small>
+            </li>
+          ))}
+        </ol>
+      </section>
 
-      <div className="pj-card pj-timeline-card">
-        <h2>Timeline</h2>
-        {items.length === 0 ? <p className="pj-state">{loading ? "Loading milestones…" : "No milestones yet."}</p> : (
-          <ol className="pj-timeline">
-            {items.map((milestone, index) => (
-              <li key={milestone.id} className="pj-step">
-                <div className="pj-step-track">
-                  <span className={`pj-dot ${dotTone(milestone)}`} aria-hidden="true">{milestone.status === "Completed" ? "✓" : ""}</span>
-                  {index < items.length - 1 ? <span className={`pj-line ${milestone.status === "Completed" ? "is-done" : ""}`} /> : null}
-                </div>
-                <strong>{milestone.name}</strong>
-                <small>{formatDate(milestone.due_date)}</small>
-              </li>
-            ))}
-          </ol>
-        )}
-      </div>
-
-      <div className="pj-split">
-        <div className="pj-card">
+      <div className="milestone-content-grid">
+        <section className="feature-card milestone-table-card" aria-label="Milestone register">
           <div className="responsive-table-wrap">
-            <table className="pj-table">
-              <thead>
-                <tr>
-                  <th>Milestone</th>
-                  <th>Status</th>
-                  <th>Progress</th>
-                  <th>Due date</th>
-                  <th>Owner</th>
-                  {canWrite ? <th><span className="pj-sr">Actions</span></th> : null}
-                </tr>
-              </thead>
+            <table className="feature-table milestone-table" aria-label="Milestone register">
+              <thead><tr><th>Milestone</th><th>Status</th><th>Progress</th><th>Due date</th><th>Owner</th></tr></thead>
               <tbody>
-                {visible.map((milestone) => (
-                  <tr key={milestone.id} className={`is-clickable ${milestone.id === selectedId ? "is-selected" : ""}`} onClick={() => setSelectedId(milestone.id)}>
-                    <td>
-                      <button type="button" className="pj-link-button" aria-pressed={milestone.id === selectedId} onClick={() => setSelectedId(milestone.id)}>{milestone.name}</button>
-                    </td>
-                    <td><StatusPill status={milestone.status} /></td>
-                    <td><ProgressBar value={milestone.progress} tone={barTone(milestone.status)} /></td>
-                    <td>{formatDate(milestone.due_date)}</td>
-                    <td>{milestone.owner ?? "—"}</td>
-                    {canWrite ? (
-                      <td><button type="button" className="table-action-button" onClick={(e) => { e.stopPropagation(); setModal({ milestone }); }}>Edit</button></td>
-                    ) : null}
+                {visibleMilestones.map((milestone) => (
+                  <tr key={milestone.id}>
+                    <td><strong>{milestone.name}</strong></td>
+                    <td><span className={`status-pill milestone-status--${milestone.status.toLowerCase().replace(" ", "-")}`}>{milestone.status}</span></td>
+                    <td><span className="milestone-progress"><span><i style={{ width: `${milestone.progress}%` }} /></span><strong>{milestone.progress}%</strong></span></td>
+                    <td>{formatDate(milestone.date)}</td>
+                    <td>{milestone.owner}</td>
                   </tr>
                 ))}
+                {visibleMilestones.length === 0 ? <tr><td colSpan={5} className="table-empty">No milestones in this phase.</td></tr> : null}
               </tbody>
             </table>
           </div>
-          {!loading && visible.length === 0 ? <p className="pj-state">{items.length === 0 ? "No milestones yet." : "No milestones match this filter."}</p> : null}
-        </div>
+        </section>
 
-        <aside className="pj-card pj-approval" aria-label="Approval workflow">
-          <div>
-            <h2>Approval workflow</h2>
-            <p className="pj-sub">{selected ? `${selected.name} · evidence required to close` : "Select a milestone to see its approvals"}</p>
+        <aside className="feature-card approval-card">
+          <h2>Approval workflow</h2>
+          <p>{currentMilestone?.name ?? "Milestone"} · evidence required to close</p>
+          <ol className="approval-steps">
+            {approvalSteps.map((step) => (
+              <li key={step.id} className={`approval-step approval-step--${step.status.toLowerCase()}`}>
+                <span className="approval-step-number">{step.status === "Done" ? "✓" : step.id}</span>
+                <span className="approval-step-copy"><strong>{step.title}</strong><small>{step.approver}</small></span>
+                {step.status === "Pending"
+                  ? <button type="button" className="approval-status approval-status--pending" onClick={() => advanceApproval(step.id)}>Approve</button>
+                  : <span className={`approval-status approval-status--${step.status.toLowerCase()}`}>{step.status}</span>}
+              </li>
+            ))}
+          </ol>
+          <div className="milestone-attachments" aria-label="Milestone evidence">
+            <a href="data:text/plain,Delivery%20note%20for%20Material%20Delivery" download="Delivery_note.txt">Delivery_note.txt</a>
+            <a href="data:text/plain,Site%20photos%20for%20Material%20Delivery" download="Site_photos.txt">Site_photos.txt</a>
           </div>
-          {panelError ? <p className="pj-alert" role="alert">{panelError}</p> : null}
-          {approvals ? (
-            <>
-              <ol className="pj-steps">
-                {approvals.steps.map((step) => (
-                  <li key={step.id}>
-                    <span className={`pj-step-no ${stepTone(step.status)}`}>{step.step_no}</span>
-                    <span className="pj-step-text">
-                      <strong>{step.name}</strong>
-                      <small>{step.actor ?? "—"}</small>
-                    </span>
-                    <span className={`pj-step-status ${stepTone(step.status)}`}>{step.status}</span>
-                  </li>
-                ))}
-              </ol>
-              {approvals.evidence.length > 0 ? (
-                <ul className="pj-chips" aria-label="Evidence">
-                  {approvals.evidence.map((item) => <li key={item.id} className="pj-chip" title={`Added by ${item.uploaded_by}`}>{item.file_name}</li>)}
-                </ul>
-              ) : null}
-              {canApprove && pending ? (
-                <button type="button" className="primary-button" onClick={() => void act(() => api.post<ApprovalWorkflow>(`/milestones/${approvals.milestone_id}/approvals/advance`), true)}>
-                  Approve: {pending.name}
-                </button>
-              ) : null}
-              {canWrite ? (
-                <form className="pj-evidence-form" onSubmit={(event) => void addEvidence(event)}>
-                  <input value={evidenceName} onChange={(e) => setEvidenceName(e.target.value)} placeholder="Evidence file name, e.g. Delivery_note.pdf" aria-label="Evidence file name" maxLength={200} required />
-                  <button type="submit" className="secondary-button">Add</button>
-                </form>
-              ) : null}
-            </>
-          ) : null}
         </aside>
       </div>
 
-      <aside className="pj-banner is-orange">
-        <span className="pj-banner-icon" aria-hidden="true">⚑</span>
-        <div>
-          <strong>Define and track milestones</strong>
-          <span>AI agents execute milestone-specific tasks.</span>
+      {showCreate ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowCreate(false); }}>
+          <section className="feature-modal" role="dialog" aria-modal="true" aria-labelledby="add-milestone-title">
+            <div className="modal-heading"><div><span className="eyebrow">MILESTONE REGISTER</span><h2 id="add-milestone-title">Add milestone</h2></div><button type="button" className="modal-close" aria-label="Close add milestone" onClick={() => setShowCreate(false)}>×</button></div>
+            <form className="feature-form" onSubmit={addMilestone}>
+              <label>Milestone name<input required maxLength={80} value={name} onChange={(event) => setName(event.target.value)} /></label>
+              <div className="form-row"><label>Due date<input required type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><label>Owner<input required maxLength={60} value={owner} onChange={(event) => setOwner(event.target.value)} /></label></div>
+              <label>Phase<select value={newPhase} onChange={(event) => setNewPhase(event.target.value as Exclude<MilestonePhase, "All phases">)}>{phases.slice(1).map((item) => <option key={item}>{item}</option>)}</select></label>
+              <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setShowCreate(false)}>Cancel</button><button type="submit" className="milestone-add-button">Add milestone</button></div>
+            </form>
+          </section>
         </div>
-      </aside>
-
-      {modal ? (
-        <MilestoneModal
-          projectId={projectId}
-          milestone={modal.milestone}
-          onClose={() => setModal(null)}
-          onSaved={(id) => {
-            setModal(null);
-            setSelectedId(id);
-            setReloadKey((key) => key + 1);
-          }}
-        />
       ) : null}
     </section>
   );
-}
-
-export function MilestonesPage(): JSX.Element {
-  const { projectId } = useParams();
-  const [firstProjectId, setFirstProjectId] = useState<number | null | undefined>(undefined);
-
-  useEffect(() => {
-    if (projectId) return undefined;
-    let active = true;
-    api.get<ProjectList>("/projects", { params: { page_size: 1 } })
-      .then(({ data }) => {
-        if (active) setFirstProjectId(data.items[0]?.id ?? null);
-      })
-      .catch(() => {
-        if (active) setFirstProjectId(null);
-      });
-    return () => {
-      active = false;
-    };
-  }, [projectId]);
-
-  const numericId = projectId ? Number(projectId) : NaN;
-  if (projectId) {
-    if (!Number.isInteger(numericId) || numericId < 1) return <Navigate to="/projects" replace />;
-    return <MilestonesView projectId={numericId} />;
-  }
-
-  if (firstProjectId === undefined) return <div className="centered">Loading…</div>;
-  if (firstProjectId === null) {
-    return (
-      <section className="feature-page pj-page">
-        <header className="feature-heading"><div><h1>Milestones</h1><p>Track milestones, progress and approvals</p></div></header>
-        <p className="pj-state">No projects yet. <Link to="/projects">Create a project</Link> to add milestones.</p>
-      </section>
-    );
-  }
-  return <Navigate to={`/projects/${firstProjectId}/milestones`} replace />;
 }

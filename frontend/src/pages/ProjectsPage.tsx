@@ -1,302 +1,249 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useMemo, useState } from "react";
 
-import api from "../api/client";
-import { getApiErrorMessage } from "../api/errors";
-import { Modal } from "../components/Modal";
-import { ProgressBar, StatusPill, barTone, formatDate } from "../components/ProjectUi";
-import { useAuth } from "../context/AuthContext";
-import type { Project, ProjectHealth, ProjectList } from "../types";
+type ProjectStatus = "On track" | "At risk" | "Delayed";
 
-const PAGE_SIZE = 6;
-const HEALTH_OPTIONS: ProjectHealth[] = ["On track", "At risk", "Delayed"];
-
-interface ProjectForm {
+interface Project {
+  id: string;
   name: string;
-  code: string;
+  status: ProjectStatus;
+  progress: number;
   owner: string;
-  country: string;
-  plant: string;
-  budget: string;
-  start_date: string;
-  end_date: string;
-  ai_agents_enabled: boolean;
+  startDate: string;
+  endDate: string;
+  agentsEnabled: boolean;
 }
 
-const emptyForm: ProjectForm = {
-  name: "",
-  code: "",
-  owner: "",
-  country: "",
-  plant: "",
-  budget: "",
-  start_date: "",
-  end_date: "",
-  ai_agents_enabled: true,
-};
+const initialProjects: Project[] = [
+  { id: "PRJ-001", name: "Alpha – Expansion Plant", status: "On track", progress: 70, owner: "Ravi K.", startDate: "10 Oct 2026", endDate: "20 Dec 2026", agentsEnabled: true },
+  { id: "PRJ-002", name: "Vendor Manufacturing", status: "At risk", progress: 45, owner: "Anita S.", startDate: "20 Oct 2026", endDate: "15 Jan 2027", agentsEnabled: true },
+  { id: "PRJ-003", name: "Plant Engineering Upgrade", status: "Delayed", progress: 20, owner: "Michael T.", startDate: "20 Oct 2026", endDate: "28 Feb 2027", agentsEnabled: true },
+  { id: "PRJ-004", name: "Digital Twin Implementation", status: "On track", progress: 55, owner: "Ravi K.", startDate: "10 Oct 2026", endDate: "30 Nov 2026", agentsEnabled: true },
+  { id: "PRJ-005", name: "Sustainability Initiative", status: "On track", progress: 30, owner: "Rita S.", startDate: "20 Oct 2026", endDate: "31 Mar 2027", agentsEnabled: false },
+  { id: "PRJ-006", name: "Supplier Onboarding", status: "At risk", progress: 38, owner: "Priya S.", startDate: "01 Nov 2026", endDate: "15 Feb 2027", agentsEnabled: false },
+  { id: "PRJ-007", name: "Northstar Rolling Mill Modernization", status: "On track", progress: 62, owner: "Meera S.", startDate: "05 Sep 2026", endDate: "15 Apr 2027", agentsEnabled: true },
+  { id: "PRJ-008", name: "Precision CNC Cell Expansion", status: "At risk", progress: 41, owner: "Anita R.", startDate: "18 Sep 2026", endDate: "10 May 2027", agentsEnabled: true },
+  { id: "PRJ-009", name: "Evergreen Packaging Line 3", status: "On track", progress: 76, owner: "Priya N.", startDate: "01 Aug 2026", endDate: "28 Dec 2026", agentsEnabled: false },
+  { id: "PRJ-010", name: "Summit Pump Test Facility", status: "Delayed", progress: 24, owner: "Daniel L.", startDate: "12 Sep 2026", endDate: "30 Jun 2027", agentsEnabled: true },
+  { id: "PRJ-011", name: "Factory Energy Optimization", status: "On track", progress: 53, owner: "Rita S.", startDate: "01 Oct 2026", endDate: "31 May 2027", agentsEnabled: true },
+  { id: "PRJ-012", name: "Quality Systems Upgrade", status: "At risk", progress: 35, owner: "Michael T.", startDate: "15 Oct 2026", endDate: "15 Mar 2027", agentsEnabled: false },
+];
 
-function CreateProjectModal({ defaultOwner, onClose, onCreated }: Readonly<{ defaultOwner: string; onClose: () => void; onCreated: () => void }>): JSX.Element {
-  const [form, setForm] = useState<ProjectForm>({ ...emptyForm, owner: defaultOwner });
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
+const pageSize = 6;
 
-  const update = <K extends keyof ProjectForm>(key: K, value: ProjectForm[K]) => setForm((current) => ({ ...current, [key]: value }));
+function statusClass(status: ProjectStatus): string {
+  return status === "On track" ? "project-status--on-track" : status === "At risk" ? "project-status--at-risk" : "project-status--delayed";
+}
 
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (form.end_date < form.start_date) {
-      setError("End date must not be before the start date.");
-      return;
-    }
-    setSaving(true);
-    setError("");
-    try {
-      await api.post("/projects", {
-        name: form.name.trim(),
-        code: form.code.trim() || null,
-        owner: form.owner.trim(),
-        country: form.country.trim() || null,
-        plant: form.plant.trim() || null,
-        budget: form.budget === "" ? null : form.budget,
-        start_date: form.start_date,
-        end_date: form.end_date,
-        ai_agents_enabled: form.ai_agents_enabled,
-      });
-      onCreated();
-    } catch (err) {
-      setError(getApiErrorMessage(err, "Could not create the project. Check the details and try again."));
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Modal eyebrow="NEW PROJECT" title="Create a project" onClose={onClose}>
-      <form className="feature-form" onSubmit={(event) => void submit(event)}>
-        <label>
-          Project name
-          <input required minLength={2} maxLength={200} value={form.name} onChange={(e) => update("name", e.target.value)} />
-        </label>
-        <div className="form-row">
-          <label>
-            Owner
-            <input required maxLength={100} value={form.owner} onChange={(e) => update("owner", e.target.value)} />
-          </label>
-          <label>
-            Project code (optional)
-            <input maxLength={50} pattern="[A-Za-z0-9_\-]*" placeholder="Auto-generated" value={form.code} onChange={(e) => update("code", e.target.value)} />
-          </label>
-        </div>
-        <div className="form-row">
-          <label>
-            Start date
-            <input required type="date" value={form.start_date} onChange={(e) => update("start_date", e.target.value)} />
-          </label>
-          <label>
-            End date
-            <input required type="date" min={form.start_date || undefined} value={form.end_date} onChange={(e) => update("end_date", e.target.value)} />
-          </label>
-        </div>
-        <div className="form-row">
-          <label>
-            Country
-            <input maxLength={100} value={form.country} onChange={(e) => update("country", e.target.value)} />
-          </label>
-          <label>
-            Plant
-            <input maxLength={100} value={form.plant} onChange={(e) => update("plant", e.target.value)} />
-          </label>
-        </div>
-        <label>
-          Budget
-          <input type="number" min={0} step="0.01" value={form.budget} onChange={(e) => update("budget", e.target.value)} />
-        </label>
-        <label className="pj-check">
-          <input type="checkbox" checked={form.ai_agents_enabled} onChange={(e) => update("ai_agents_enabled", e.target.checked)} />
-          Enable AI agents for this project
-        </label>
-        {error ? <p className="pj-alert" role="alert">{error}</p> : null}
-        <div className="modal-actions">
-          <button type="button" className="secondary-button" onClick={onClose}>Cancel</button>
-          <button type="submit" className="primary-button" disabled={saving}>{saving ? "Creating…" : "Create project"}</button>
-        </div>
-      </form>
-    </Modal>
-  );
+function dateLabel(value: string): string {
+  const date = new Date(`${value}T12:00:00`);
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(date);
 }
 
 export function ProjectsPage(): JSX.Element {
-  const { user } = useAuth();
-  const navigate = useNavigate();
-  const canWrite = user?.role === "admin" || user?.role === "manager";
-
-  const [search, setSearch] = useState("");
+  const [projects, setProjects] = useState(initialProjects);
   const [query, setQuery] = useState("");
-  const [health, setHealth] = useState<ProjectHealth | "">("");
-  const [owner, setOwner] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All status");
+  const [ownerFilter, setOwnerFilter] = useState("All owners");
   const [page, setPage] = useState(1);
-  const [data, setData] = useState<ProjectList | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [showCreate, setShowCreate] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [owner, setOwner] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [agentsEnabled, setAgentsEnabled] = useState(true);
+  const owners = useMemo(() => [...new Set(projects.map((project) => project.owner))], [projects]);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setQuery(search.trim());
-      setPage(1);
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [search]);
+  const filteredProjects = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return projects.filter((project) => {
+      const matchesQuery = !normalizedQuery || `${project.name} ${project.id} ${project.owner}`.toLowerCase().includes(normalizedQuery);
+      const matchesStatus = statusFilter === "All status" || project.status === statusFilter;
+      const matchesOwner = ownerFilter === "All owners" || project.owner === ownerFilter;
+      return matchesQuery && matchesStatus && matchesOwner;
+    });
+  }, [ownerFilter, projects, query, statusFilter]);
+  const pageCount = Math.max(1, Math.ceil(filteredProjects.length / pageSize));
+  const visibleProjects = filteredProjects.slice((page - 1) * pageSize, page * pageSize);
+  const rangeStart = filteredProjects.length ? (page - 1) * pageSize + 1 : 0;
+  const rangeEnd = Math.min(page * pageSize, filteredProjects.length);
 
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    api
-      .get<ProjectList>("/projects", { params: { search: query || undefined, health: health || undefined, owner: owner || undefined, page, page_size: PAGE_SIZE } })
-      .then(({ data: result }) => {
-        if (!active) return;
-        setData(result);
-        setError("");
-      })
-      .catch((err: unknown) => {
-        if (active) setError(getApiErrorMessage(err, "Could not load projects."));
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
+  const updateFilter = (setter: (value: string) => void, value: string) => {
+    setter(value);
+    setPage(1);
+  };
+
+  const createProject = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const project: Project = {
+      id: `PRJ-${String(Date.now()).slice(-3)}`,
+      name: name.trim(),
+      status: "On track",
+      progress: 0,
+      owner: owner.trim(),
+      startDate: dateLabel(startDate),
+      endDate: dateLabel(endDate),
+      agentsEnabled,
     };
-  }, [query, health, owner, page, reloadKey]);
+    setProjects((current) => [project, ...current]);
+    setQuery("");
+    setStatusFilter("All status");
+    setOwnerFilter("All owners");
+    setPage(1);
+    setCreateOpen(false);
+    setName("");
+    setOwner("");
+    setStartDate("");
+    setEndDate("");
+    setAgentsEnabled(true);
+  };
 
-  const toggleAgents = useCallback(async (project: Project) => {
-    try {
-      const { data: updated } = await api.patch<Project>(`/projects/${project.id}`, { ai_agents_enabled: !project.ai_agents_enabled });
-      setData((current) => (current ? { ...current, items: current.items.map((item) => (item.id === updated.id ? updated : item)) } : current));
-    } catch (err) {
-      setError(getApiErrorMessage(err, "Could not update AI agents."));
-    }
-  }, []);
-
-  const items = data?.items ?? [];
-  const total = data?.total ?? 0;
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const first = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const last = Math.min(page * PAGE_SIZE, total);
+  const toggleAgents = (project: Project) => {
+    setProjects((current) => current.map((item) =>
+      item.id === project.id ? { ...item, agentsEnabled: !item.agentsEnabled } : item,
+    ));
+  };
 
   return (
-    <section className="feature-page pj-page">
-      <header className="feature-heading">
-        <div>
-          <h1>Projects</h1>
-          <p>Manage all projects across the organization</p>
-        </div>
-        {canWrite ? (
-          <button type="button" className="primary-button" onClick={() => setShowCreate(true)}>
-            <span aria-hidden="true">＋</span> Create project
-          </button>
-        ) : null}
+    <section className="projects-page">
+      <header className="projects-heading">
+        <div><h1>Projects</h1><p>Manage all projects across the organization</p></div>
+        <button type="button" className="projects-create-button" onClick={() => setCreateOpen(true)}>＋ Create project</button>
       </header>
 
-      <div className="pj-toolbar">
-        <label className="pj-search">
-          <span aria-hidden="true">⌕</span>
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search projects" aria-label="Search projects" maxLength={100} />
-        </label>
-        <select className="pj-select" aria-label="Filter by status" value={health} onChange={(e) => { setHealth(e.target.value as ProjectHealth | ""); setPage(1); }}>
-          <option value="">All status</option>
-          {HEALTH_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-        </select>
-        <select className="pj-select" aria-label="Filter by owner" value={owner} onChange={(e) => { setOwner(e.target.value); setPage(1); }}>
-          <option value="">All owners</option>
-          {(data?.owners ?? []).map((name) => <option key={name} value={name}>{name}</option>)}
-        </select>
-      </div>
+      <section className="projects-table-card" aria-label="Project register">
+        <div className="projects-toolbar">
+          <label className="projects-search">
+            <span aria-hidden="true">⌕</span>
+            <input
+              aria-label="Search projects"
+              placeholder="Search projects"
+              value={query}
+              onChange={(event) => updateFilter(setQuery, event.target.value)}
+            />
+            {query ? <button type="button" aria-label="Clear project search" onClick={() => updateFilter(setQuery, "")}>×</button> : null}
+          </label>
+          <label className="projects-filter">
+            <span className="visually-hidden">Filter by status</span>
+            <select aria-label="Filter by status" value={statusFilter} onChange={(event) => updateFilter(setStatusFilter, event.target.value)}>
+              <option>All status</option><option>On track</option><option>At risk</option><option>Delayed</option>
+            </select>
+          </label>
+          <label className="projects-filter">
+            <span className="visually-hidden">Filter by owner</span>
+            <select aria-label="Filter by owner" value={ownerFilter} onChange={(event) => updateFilter(setOwnerFilter, event.target.value)}>
+              <option>All owners</option>
+              {owners.map((name) => <option key={name}>{name}</option>)}
+            </select>
+          </label>
+        </div>
 
-      <div className="pj-card">
-        {error ? <p className="pj-state is-error" role="alert">{error}</p> : null}
-        <div className="responsive-table-wrap">
-          <table className="pj-table">
+        <div className="projects-table-scroll">
+          <table className="projects-table">
             <thead>
-              <tr>
-                <th>Project name</th>
-                <th>Status</th>
-                <th>Progress</th>
-                <th>Owner</th>
-                <th>Start date</th>
-                <th>End date</th>
-                <th>AI agents</th>
-              </tr>
+              <tr><th>Project name</th><th>Status</th><th>Progress</th><th>Owner</th><th>Start date</th><th>End date</th><th>AI agents</th></tr>
             </thead>
             <tbody>
-              {items.map((project) => (
-                <tr key={project.id} className="is-clickable" onClick={() => navigate(`/projects/${project.id}/milestones`)}>
+              {visibleProjects.map((project) => (
+                <tr key={project.id}>
                   <td>
-                    <Link className="pj-name" to={`/projects/${project.id}/milestones`} onClick={(e) => e.stopPropagation()}>
-                      <span className="pj-avatar" aria-hidden="true">{project.name.charAt(0).toUpperCase()}</span>
-                      {project.name}
-                    </Link>
+                    <button type="button" className="project-name-button" onClick={() => setSelectedProject(project)}>
+                      <span className="project-initial">{project.name.charAt(0).toUpperCase()}</span>
+                      <span><strong>{project.name}</strong><small>{project.id}</small></span>
+                    </button>
                   </td>
-                  <td><StatusPill status={project.health} /></td>
-                  <td><ProgressBar value={project.progress} tone={barTone(project.health)} /></td>
-                  <td>{project.owner ?? "—"}</td>
-                  <td>{formatDate(project.start_date)}</td>
-                  <td>{formatDate(project.end_date)}</td>
+                  <td><span className={`project-status ${statusClass(project.status)}`}>{project.status}</span></td>
+                  <td>
+                    <div className="project-progress">
+                      <span className="project-progress-track"><span className={`project-progress-value ${statusClass(project.status)}`} style={{ width: `${project.progress}%` }} /></span>
+                      <strong>{project.progress}%</strong>
+                    </div>
+                  </td>
+                  <td>{project.owner}</td><td>{project.startDate}</td><td>{project.endDate}</td>
                   <td>
                     <button
                       type="button"
-                      className={`pj-agent ${project.ai_agents_enabled ? "" : "is-off"}`}
-                      disabled={!canWrite}
-                      aria-label={`AI agents ${project.ai_agents_enabled ? "enabled" : "off"} for ${project.name}`}
-                      onClick={(e) => { e.stopPropagation(); void toggleAgents(project); }}
+                      role="switch"
+                      aria-checked={project.agentsEnabled}
+                      aria-label={`${project.agentsEnabled ? "Disable" : "Enable"} AI agents for ${project.name}`}
+                      className={`project-agent-toggle${project.agentsEnabled ? " is-enabled" : ""}`}
+                      onClick={() => toggleAgents(project)}
                     >
-                      {project.ai_agents_enabled ? "Enabled" : "Off"}
+                      {project.agentsEnabled ? "Enabled" : "Off"}
                     </button>
                   </td>
                 </tr>
               ))}
+              {!visibleProjects.length ? <tr><td colSpan={7} className="projects-empty">No projects match these filters.</td></tr> : null}
             </tbody>
           </table>
         </div>
-        {loading && items.length === 0 ? <p className="pj-state">Loading projects…</p> : null}
-        {!loading && !error && items.length === 0 ? <p className="pj-state">No projects match your filters.</p> : null}
-        <div className="pj-footer">
-          <span>Showing {first}–{last} of {total} projects</span>
-          <div className="pj-pager">
-            <button type="button" aria-label="Previous page" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>‹</button>
-            {Array.from({ length: pageCount }, (_, index) => index + 1).map((number) => (
-              <button key={number} type="button" className={number === page ? "is-current" : ""} aria-current={number === page ? "page" : undefined} onClick={() => setPage(number)}>{number}</button>
-            ))}
-            <button type="button" aria-label="Next page" disabled={page >= pageCount} onClick={() => setPage((p) => p + 1)}>›</button>
-          </div>
-        </div>
-      </div>
 
-      {canWrite ? (
-        <aside className="pj-banner is-green">
-          <span className="pj-banner-icon" aria-hidden="true">✦</span>
-          <div>
-            <strong>Start a project</strong>
-            <span>Define scope, team and timeline, then enable AI agents.</span>
-          </div>
-          <button type="button" className="secondary-button" onClick={() => setShowCreate(true)}>Open project wizard</button>
-        </aside>
+        <footer className="projects-table-footer">
+          <span>Showing {rangeStart}–{rangeEnd} of {filteredProjects.length} projects</span>
+          <nav className="projects-pagination" aria-label="Project pages">
+            <button type="button" aria-label="Previous page" disabled={page === 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>‹</button>
+            {Array.from({ length: pageCount }, (_, index) => index + 1).map((pageNumber) => (
+              <button
+                type="button"
+                key={pageNumber}
+                aria-label={`Page ${pageNumber}`}
+                aria-current={page === pageNumber ? "page" : undefined}
+                className={page === pageNumber ? "is-current" : ""}
+                onClick={() => setPage(pageNumber)}
+              >
+                {pageNumber}
+              </button>
+            ))}
+            <button type="button" aria-label="Next page" disabled={page === pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}>›</button>
+          </nav>
+        </footer>
+      </section>
+
+      {createOpen ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreateOpen(false); }}>
+          <section className="feature-modal projects-modal" role="dialog" aria-modal="true" aria-labelledby="create-project-title">
+            <div className="modal-heading">
+              <div><span className="eyebrow">PROJECT SETUP</span><h2 id="create-project-title">Create a project</h2></div>
+              <button type="button" className="modal-close" aria-label="Close project wizard" onClick={() => setCreateOpen(false)}>×</button>
+            </div>
+            <form className="feature-form" onSubmit={createProject}>
+              <label>Project name<input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Factory expansion" /></label>
+              <label>Project owner<input required maxLength={60} value={owner} onChange={(event) => setOwner(event.target.value)} placeholder="Name or team" /></label>
+              <div className="form-row">
+                <label>Start date<input required type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label>
+                <label>End date<input required type="date" min={startDate || undefined} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label>
+              </div>
+              <label className="project-agent-option"><input type="checkbox" checked={agentsEnabled} onChange={(event) => setAgentsEnabled(event.target.checked)} /> Enable AI agents for this project</label>
+              <div className="modal-actions">
+                <button type="button" className="secondary-button" onClick={() => setCreateOpen(false)}>Cancel</button>
+                <button type="submit" className="projects-create-button">Create project</button>
+              </div>
+            </form>
+          </section>
+        </div>
       ) : null}
 
-      {showCreate ? (
-        <CreateProjectModal
-          defaultOwner={user?.username ?? ""}
-          onClose={() => setShowCreate(false)}
-          onCreated={() => {
-            setShowCreate(false);
-            setSearch("");
-            setQuery("");
-            setHealth("");
-            setOwner("");
-            setPage(1);
-            setReloadKey((key) => key + 1);
-          }}
-        />
+      {selectedProject ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedProject(null); }}>
+          <section className="feature-modal projects-modal" role="dialog" aria-modal="true" aria-labelledby="project-detail-title">
+            <div className="modal-heading">
+              <div><span className="eyebrow">{selectedProject.id}</span><h2 id="project-detail-title">{selectedProject.name}</h2></div>
+              <button type="button" className="modal-close" aria-label="Close project details" onClick={() => setSelectedProject(null)}>×</button>
+            </div>
+            <div className="project-detail-grid">
+              <div><span>Status</span><strong>{selectedProject.status}</strong></div>
+              <div><span>Progress</span><strong>{selectedProject.progress}%</strong></div>
+              <div><span>Owner</span><strong>{selectedProject.owner}</strong></div>
+              <div><span>Start date</span><strong>{selectedProject.startDate}</strong></div>
+              <div><span>End date</span><strong>{selectedProject.endDate}</strong></div>
+              <div><span>AI agents</span><strong>{selectedProject.agentsEnabled ? "Enabled" : "Off"}</strong></div>
+            </div>
+            <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setSelectedProject(null)}>Close</button></div>
+          </section>
+        </div>
       ) : null}
     </section>
   );
