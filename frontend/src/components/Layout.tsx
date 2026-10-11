@@ -1,174 +1,228 @@
-import type { ReactNode } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, NavLink, Outlet, useNavigate, useSearchParams } from "react-router-dom";
 
 import { useAuth } from "../context/AuthContext";
+import { sampleBusinesses, sampleRisks } from "../pages/sampleData";
 
-function Icon({ children }: Readonly<{ children: ReactNode }>): JSX.Element {
-  return (
-    <svg className="side-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      {children}
-    </svg>
-  );
-}
-
-const icons = {
-  overview: (
-    <Icon>
-      <path d="M3.5 11 12 3.5 20.5 11" />
-      <path d="M5.5 9.8V20h4.2v-5.6h4.6V20h4.2V9.8" />
-    </Icon>
-  ),
-  projects: (
-    <Icon>
-      <path d="M4 7h16M4 12h10M4 17h16" />
-    </Icon>
-  ),
-  milestones: (
-    <Icon>
-      <path d="M6 21V3.5" />
-      <path d="M6 4.5h11.5L15 8.6l2.5 4.1H6" />
-    </Icon>
-  ),
-  dependencies: (
-    <Icon>
-      <rect x="3.5" y="3.5" width="6" height="5.5" rx="1" />
-      <rect x="14.5" y="3.5" width="6" height="5.5" rx="1" />
-      <rect x="9" y="15" width="6" height="5.5" rx="1" />
-      <path d="M6.5 9v3h11V9M12 12v3" />
-    </Icon>
-  ),
-  risks: (
-    <Icon>
-      <path d="M12 3.5 21.5 20h-19z" />
-      <path d="M12 10v5M12 17.6v.1" />
-    </Icon>
-  ),
-  actions: (
-    <Icon>
-      <path d="m3.5 6.2 1.6 1.6 2.6-3M3.5 12.2l1.6 1.6 2.6-3M3.5 18.2l1.6 1.6 2.6-3" />
-      <path d="M11 6.5h9.5M11 12.5h9.5M11 18.5h9.5" />
-    </Icon>
-  ),
-  reports: (
-    <Icon>
-      <path d="M5 20v-6M10 20V8M15 20v-9M20 20V5" />
-    </Icon>
-  ),
-  settings: (
-    <Icon>
-      <circle cx="12" cy="12" r="3.2" />
-      <path d="M12 3v2.4M12 18.6V21M3 12h2.4M18.6 12H21M5.6 5.6l1.7 1.7M16.7 16.7l1.7 1.7M5.6 18.4l1.7-1.7M16.7 7.3l1.7-1.7" />
-    </Icon>
-  ),
-};
-
-type NavKey = keyof typeof icons;
-
-interface NavItem {
-  key: NavKey;
-  label: string;
-  to?: string;
-  end?: boolean;
-}
-
-// Items without a route stay visible to match the design but are not clickable yet.
-const NAV_ITEMS: NavItem[] = [
-  { key: "overview", label: "Overview", to: "/", end: true },
-  { key: "projects", label: "Projects", to: "/projects" },
-  { key: "milestones", label: "Milestones", to: "/milestones" },
-  { key: "dependencies", label: "Dependencies" },
-  { key: "risks", label: "Risks & Issues" },
-  { key: "actions", label: "Actions" },
-  { key: "reports", label: "Reports", to: "/analytics" },
-  { key: "settings", label: "Settings" },
+const navigation = [
+  { label: "Overview", to: "/", icon: "⌂", end: true },
+  { label: "Projects", to: "/projects", icon: "▣", end: false },
+  { label: "Milestones", to: "/milestones", icon: "⚑", end: false },
+  { label: "Dependencies", to: "/dependencies", icon: "⑂", end: false },
+  { label: "Risks & Issues", to: "/risks", icon: "⚠", end: false },
+  { label: "Actions", to: "/actions", icon: "✓", end: false },
+  { label: "Reports", to: "/reports", icon: "▤", end: false },
 ];
-
-const PROJECT_MILESTONES = /^\/projects\/[^/]+\/milestones\/?$/;
-
-function initialsOf(name: string | undefined): string {
-  return (name ?? "").trim().slice(0, 2).toUpperCase() || "U";
-}
-
-function titleCase(value: string | undefined): string {
-  return value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
-}
 
 export function Layout(): JSX.Element {
   const { user, logout } = useAuth();
-  const { pathname } = useLocation();
+  const initials = user?.username.slice(0, 2).toUpperCase() ?? "SP";
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const requestedBusiness = searchParams.get("business") ?? "";
+  const selectedBusiness = sampleBusinesses.includes(requestedBusiness) ? requestedBusiness : "";
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const notificationRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+  const notifications = sampleRisks.filter((risk) =>
+    risk.status !== "Resolved" && (!selectedBusiness || risk.business === selectedBusiness),
+  );
 
-  // A project's milestone page belongs to Milestones, not Projects.
-  const onProjectMilestones = PROJECT_MILESTONES.test(pathname);
+  useEffect(() => {
+    if (!notificationsOpen && !userMenuOpen) return undefined;
 
-  const isActive = (item: NavItem, routerActive: boolean): boolean => {
-    if (item.key === "milestones") return routerActive || onProjectMilestones;
-    if (item.key === "projects") return routerActive && !onProjectMilestones;
-    return routerActive;
-  };
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!(event.target instanceof Node)) return;
+      if (!notificationRef.current?.contains(event.target)) {
+        setNotificationsOpen(false);
+      }
+      if (!userMenuRef.current?.contains(event.target)) setUserMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setNotificationsOpen(false);
+        setUserMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [notificationsOpen, userMenuOpen]);
 
   return (
-    <div className="app-frame">
-      <aside className="side-nav">
-        <div className="side-brand">
-          <span className="side-brand-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24" focusable="false">
-              <path d="M12 5.2V3.6" />
-              <circle cx="12" cy="3.1" r="0.9" />
-              <rect x="4" y="7" width="16" height="12" rx="3.2" />
-              <path d="M9.2 12.2v.1M14.8 12.2v.1M9.8 15.4h4.4" />
+    <div className="app-shell">
+      <aside className="sidebar">
+        <Link
+          to={{ pathname: "/", search: searchParams.toString() ? `?${searchParams.toString()}` : "" }}
+          className="brand-lockup"
+          aria-label="AI Project Orchestrator overview"
+        >
+          <span className="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 48 48" role="presentation">
+              <path d="M24 7c-8.3 0-15 6.7-15 15 0 7.1 4.8 13 11.3 14.4l.2 4.6h7l.2-4.6C34.2 35 39 29.1 39 22c0-8.3-6.7-15-15-15Z" />
+              <circle cx="19" cy="22" r="2.1" />
+              <circle cx="29" cy="22" r="2.1" />
+              <path d="M19 29c1.4 2 3.3 3 5 3s3.6-1 5-3" />
             </svg>
           </span>
-          <span className="side-brand-copy">
+          <span className="brand-copy">
             <strong>AI Project Orchestrator</strong>
-            <small>Smarter Projects. Faster Delivery.</small>
+            <small>Detect • Predict • Act • Deliver</small>
           </span>
-        </div>
+        </Link>
 
-        <nav className="side-menu" aria-label="Main navigation">
-          {NAV_ITEMS.map((item) =>
-            item.to ? (
-              <NavLink
-                key={item.key}
-                to={item.to}
-                end={item.end}
-                className={({ isActive: routerActive }) =>
-                  `side-link${isActive(item, routerActive) ? " is-active" : ""}`
-                }
-              >
-                {icons[item.key]}
-                <span>{item.label}</span>
-              </NavLink>
-            ) : (
-              <button key={item.key} type="button" className="side-link is-disabled" disabled title="Coming soon">
-                {icons[item.key]}
-                <span>{item.label}</span>
-              </button>
-            ),
-          )}
+        <nav className="sidebar-nav" aria-label="Main navigation">
+          {navigation.map((item) => (
+            <NavLink
+              key={item.label}
+              to={{ pathname: item.to, search: searchParams.toString() ? `?${searchParams.toString()}` : "" }}
+              end={item.end}
+              className={({ isActive }) => `sidebar-nav-link${isActive ? " is-active" : ""}`}
+            >
+              <span className="nav-icon" aria-hidden="true">{item.icon}</span>
+              <span>{item.label}</span>
+              {item.end ? <span className="nav-active-indicator" aria-hidden="true" /> : null}
+            </NavLink>
+          ))}
         </nav>
 
-        <div className="side-agents">
-          <strong>AI agents</strong>
-          <p>Agents execute tasks and ask for approval when required.</p>
+        <div className="sidebar-spacer" />
+
+        <div className="sidebar-assistant">
+          <span className="assistant-sparkle" aria-hidden="true">✦</span>
+          <strong>Smarter Projects.<br />Faster Delivery.</strong>
         </div>
 
-        <div className="side-profile">
-          <span className="side-avatar" aria-hidden="true">
-            {initialsOf(user?.username)}
+        <div className="sidebar-profile">
+          <span className="profile-avatar">{initials}</span>
+          <span className="profile-copy">
+            <strong>{user?.username ?? "Account"}</strong>
+            <small>{user?.role ?? "Workspace user"}</small>
           </span>
-          <span className="side-profile-copy">
-            <strong>{user?.username}</strong>
-            <small>{titleCase(user?.role)}</small>
-          </span>
-          <button type="button" className="side-logout" onClick={() => void logout()} aria-label="Log out" title="Log out">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M9 4.5H5.5a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1H9M15.5 8 20 12l-4.5 4M20 12H9.5" />
-            </svg>
+          <button className="logout-button" onClick={logout} aria-label="Log out" title="Log out">
+            ↗
           </button>
         </div>
       </aside>
-      <main className="main-content">
-        <Outlet />
+
+      <main className="workspace">
+        <header className="topbar">
+          <div className="topbar-context">
+            <label className="topbar-label" htmlFor="business-select">Business</label>
+            {selectedBusiness ? (
+              <div className="project-select project-select-static" aria-label="Selected business" title="Business selection is locked">
+                {selectedBusiness}
+              </div>
+            ) : (
+              <select
+                id="business-select"
+                className="project-select"
+                aria-label="Select business"
+                value=""
+                onChange={(event) => {
+                  const nextParams = new URLSearchParams(searchParams);
+                  nextParams.set("business", event.target.value);
+                  setSearchParams(nextParams, { replace: true });
+                }}
+              >
+                <option value="">Select a business</option>
+                {sampleBusinesses.map((business) => <option key={business} value={business}>{business}</option>)}
+              </select>
+            )}
+          </div>
+
+          <div className="topbar-account">
+            <div className="notification-wrap" ref={notificationRef}>
+              <button
+              type="button"
+              className="topbar-icon"
+              aria-label={`Notifications, ${notifications.length} active`}
+              aria-expanded={notificationsOpen}
+              aria-controls="notification-panel"
+              onClick={() => setNotificationsOpen((open) => !open)}
+              >
+              🔔
+              {notifications.length ? <span className="notification-count">{notifications.length}</span> : null}
+              </button>
+              {notificationsOpen ? (
+              <section className="notification-panel" id="notification-panel" aria-label="Notifications">
+                <div className="notification-heading">
+                  <strong>{selectedBusiness || "All businesses"}</strong>
+                  <span>{notifications.length} active</span>
+                </div>
+                {notifications.slice(0, 4).map((risk) => (
+                  <button
+                    className="notification-item"
+                    key={risk.id}
+                    type="button"
+                    onClick={() => {
+                      const nextParams = new URLSearchParams(searchParams);
+                      nextParams.set("business", risk.business);
+                      setNotificationsOpen(false);
+                      navigate({ pathname: "/risks", search: `?${nextParams.toString()}` });
+                    }}
+                  >
+                    <span className={`severity-indicator severity-${risk.severity.toLowerCase()}`} aria-hidden="true" />
+                    <span><strong>{risk.title}</strong><small>{risk.business} · {risk.severity}</small></span>
+                  </button>
+                ))}
+                {!notifications.length ? <p className="notification-empty">No active issues for this business.</p> : null}
+                <button
+                  className="notification-view-all"
+                  type="button"
+                  onClick={() => {
+                    setNotificationsOpen(false);
+                    navigate({ pathname: "/risks", search: searchParams.toString() ? `?${searchParams.toString()}` : "" });
+                  }}
+                >
+                  View risks &amp; issues
+                </button>
+              </section>
+              ) : null}
+            </div>
+            <div className="user-menu-wrap" ref={userMenuRef}>
+              <button
+                type="button"
+                className="topbar-user-trigger"
+                aria-label="Open user menu"
+                aria-expanded={userMenuOpen}
+                aria-controls="user-menu"
+                onClick={() => setUserMenuOpen((open) => !open)}
+              >
+                <span className="topbar-avatar">{initials}</span>
+                <span className="topbar-user"><strong>{user?.username}</strong></span>
+                <span className="topbar-caret" aria-hidden="true">▾</span>
+              </button>
+              {userMenuOpen ? (
+                <div className="user-menu" id="user-menu" role="menu">
+                  <div className="user-menu-identity">
+                    <strong>{user?.username}</strong>
+                    <small>{user?.role}</small>
+                  </div>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      logout();
+                    }}
+                  >
+                    Log out
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </header>
+
+        <div className="main-content">
+          <Outlet />
+        </div>
       </main>
     </div>
   );
