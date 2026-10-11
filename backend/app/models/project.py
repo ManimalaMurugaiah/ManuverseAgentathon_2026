@@ -29,6 +29,19 @@ class Project(Base):
     ai_agents_enabled: Mapped[bool] = mapped_column(
         "AiAgentsEnabled", Boolean, default=True, server_default=text("1")
     )
+    project_type: Mapped[str | None] = mapped_column("ProjectType", String(100))
+    description: Mapped[str | None] = mapped_column("Description", String(1000))
+    business_objective: Mapped[str | None] = mapped_column("BusinessObjective", String(1000))
+    scope: Mapped[str | None] = mapped_column("Scope", String(1000))
+    business: Mapped[str | None] = mapped_column("BusinessName", String(150))
+    sponsor: Mapped[str | None] = mapped_column("Sponsor", String(100))
+    resources: Mapped[str | None] = mapped_column("Resources", String(500))
+    budget_spent: Mapped[Decimal] = mapped_column(
+        "BudgetSpent", Numeric(18, 2), default=Decimal(0), server_default=text("0")
+    )
+    health_rating: Mapped[str] = mapped_column(
+        "HealthRating", String(20), default="Good", server_default=text("'Good'")
+    )
 
 
 class Milestone(Base):

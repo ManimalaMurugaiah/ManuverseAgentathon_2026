@@ -19,6 +19,7 @@ class WorkflowRunResponse(BaseModel):
     current_stage: str
     status: str
     created_at: datetime
+    updated_at: datetime
 
 
 class WorkflowAutoRequest(BaseModel):

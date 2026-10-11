@@ -1,0 +1,52 @@
+/* Create / edit project wizard */
+.wiz-backdrop { position: fixed; z-index: 1100; inset: 0; display: flex; justify-content: flex-end; background: rgba(15, 31, 54, 0.45); }
+.wiz-drawer { display: grid; grid-template-rows: auto minmax(0, 1fr); width: min(900px, 100%); height: 100%; background: #fff; box-shadow: -12px 0 40px rgba(14, 31, 54, 0.2); }
+.wiz-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 24px; border-bottom: 1px solid #e6ecf4; }
+.wiz-header h2 { margin: 0; color: #14243c; font-size: 20px; font-weight: 800; }
+.wiz-close { width: 34px; height: 34px; border: 0; border-radius: 8px; background: transparent; color: #5d6f88; cursor: pointer; font-size: 24px; line-height: 1; }
+.wiz-close:hover { background: #f0f4fa; }
+.wiz-body { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: 0; }
+.wiz-steps { display: grid; align-content: start; gap: 4px; padding: 18px 12px; border-right: 1px solid #e6ecf4; background: #f8fafd; }
+.wiz-step { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 0; border-radius: 9px; background: transparent; color: #54657e; cursor: pointer; font: inherit; font-size: 14px; text-align: left; }
+.wiz-step:disabled { cursor: default; color: #9aa8bb; }
+.wiz-step.is-current { background: #e6efff; color: #14243c; font-weight: 700; }
+.wiz-step-number { display: grid; flex: 0 0 24px; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #dde5f0; color: #54657e; font-size: 12px; font-weight: 700; }
+.wiz-step.is-current .wiz-step-number { background: #1768dc; color: #fff; }
+.wiz-step.is-done .wiz-step-number { background: #1b9566; color: #fff; }
+.wiz-form { display: flex; flex-direction: column; gap: 16px; min-height: 0; padding: 22px 28px 0; overflow-y: auto; }
+.wiz-form-heading h3 { margin: 0; color: #14243c; font-size: 17px; font-weight: 800; }
+.wiz-form-heading p { margin: 4px 0 0; color: #70819a; font-size: 13px; }
+.wiz-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.wiz-field { position: relative; display: grid; align-content: start; gap: 6px; min-width: 0; }
+.wiz-label { color: #2c3f5b; font-size: 13px; font-weight: 700; }
+.wiz-label b { color: #d33a3a; }
+.wiz-field input, .wiz-field select, .wiz-field textarea { width: 100%; padding: 10px 12px; border: 1px solid #d6dfec; border-radius: 8px; background: #fff; color: #14243c; font: inherit; font-size: 14px; }
+.wiz-field textarea { resize: vertical; min-height: 92px; }
+.wiz-field input:focus, .wiz-field select:focus, .wiz-field textarea:focus { border-color: #1768dc; outline: 0; box-shadow: 0 0 0 3px #e3eeff; }
+.wiz-field input[readonly] { background: #f3f6fa; color: #70819a; }
+.wiz-count { position: absolute; right: 10px; bottom: 8px; color: #8fa0b6; font-size: 11px; pointer-events: none; }
+.wiz-hint { color: #70819a; font-size: 12px; }
+.wiz-error { color: #c62f2f; font-size: 12px; }
+.wiz-save-error { padding: 10px 12px; border: 1px solid #f3c4c4; border-radius: 8px; background: #fff5f5; font-size: 13px; }
+.wiz-code { display: flex; gap: 8px; }
+.wiz-icon-button { flex: 0 0 40px; border: 1px solid #d6dfec; border-radius: 8px; background: #fff; color: #1768dc; cursor: pointer; font-size: 18px; }
+.wiz-icon-button:hover { background: #f0f6ff; }
+.wiz-check { display: flex; align-items: flex-start; gap: 12px; padding: 14px; border: 1px solid #dbe5f2; border-radius: 10px; background: #f8fafd; cursor: pointer; }
+.wiz-check input { width: 18px; height: 18px; margin-top: 2px; accent-color: #1768dc; }
+.wiz-check span { display: grid; gap: 3px; }
+.wiz-check strong { color: #14243c; font-size: 14px; }
+.wiz-check small { color: #70819a; font-size: 12px; }
+.wiz-review { display: grid; gap: 0; margin: 0; border: 1px solid #e3eaf4; border-radius: 10px; }
+.wiz-review > div { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 12px; padding: 10px 14px; border-bottom: 1px solid #edf1f7; }
+.wiz-review > div:last-child { border-bottom: 0; }
+.wiz-review dt { color: #70819a; font-size: 13px; }
+.wiz-review dd { margin: 0; color: #14243c; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.wiz-footer { position: sticky; bottom: 0; display: flex; justify-content: flex-end; gap: 10px; margin-top: auto; padding: 16px 0 20px; background: #fff; border-top: 1px solid #e6ecf4; }
+.wiz-footer .primary-button, .wiz-footer .secondary-button { min-height: 40px; padding: 0 20px; font-size: 14px; }
+
+@media (max-width: 760px) {
+  .wiz-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .wiz-steps { grid-auto-flow: column; grid-auto-columns: max-content; overflow-x: auto; border-right: 0; border-bottom: 1px solid #e6ecf4; }
+  .wiz-row { grid-template-columns: minmax(0, 1fr); }
+  .wiz-review > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}

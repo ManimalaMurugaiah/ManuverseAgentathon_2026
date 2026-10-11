@@ -1,249 +1,295 @@
-import { useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 
-type ProjectStatus = "On track" | "At risk" | "Delayed";
+import api from "../api/client";
+import { getApiErrorMessage } from "../api/errors";
+import { useApiData } from "../api/useApiData";
+import { useBusiness } from "../api/useBusiness";
+import { Avatar, ErrorState, LoadingState, Notice, Pill, ProgressBar, canWriteProjects, scheduleTone, useDebounced } from "../components/ui";
+import { ProjectWizard } from "../components/ProjectWizard";
+import { useAuth } from "../context/AuthContext";
+import type { Lookups, Project, ProjectDetail, ProjectList, ProjectSummary } from "../types";
+import { formatMoney, percent } from "../utils/format";
 
-interface Project {
-  id: string;
-  name: string;
-  status: ProjectStatus;
-  progress: number;
-  owner: string;
-  startDate: string;
-  endDate: string;
-  agentsEnabled: boolean;
-}
+const PAGE_SIZES = [10, 25, 50];
+const BUDGET_BANDS: Record<string, { label: string; min?: number; max?: number }> = {
+  lt10: { label: "Under $10M", max: 9_999_999 },
+  "10to50": { label: "$10M – $50M", min: 10_000_000, max: 50_000_000 },
+  gt50: { label: "Over $50M", min: 50_000_001 },
+};
+const EMPTY_LOOKUPS: Lookups = {
+  project_types: [], lifecycle_statuses: ["Draft", "Planning", "Execution", "On Hold", "Completed", "Cancelled"], risk_levels: ["Low", "Medium", "High", "Critical"],
+  action_statuses: [], owners: [], plants: [], countries: [], businesses: [], templates: [], roles: [],
+};
 
-const initialProjects: Project[] = [
-  { id: "PRJ-001", name: "Alpha – Expansion Plant", status: "On track", progress: 70, owner: "Ravi K.", startDate: "10 Oct 2026", endDate: "20 Dec 2026", agentsEnabled: true },
-  { id: "PRJ-002", name: "Vendor Manufacturing", status: "At risk", progress: 45, owner: "Anita S.", startDate: "20 Oct 2026", endDate: "15 Jan 2027", agentsEnabled: true },
-  { id: "PRJ-003", name: "Plant Engineering Upgrade", status: "Delayed", progress: 20, owner: "Michael T.", startDate: "20 Oct 2026", endDate: "28 Feb 2027", agentsEnabled: true },
-  { id: "PRJ-004", name: "Digital Twin Implementation", status: "On track", progress: 55, owner: "Ravi K.", startDate: "10 Oct 2026", endDate: "30 Nov 2026", agentsEnabled: true },
-  { id: "PRJ-005", name: "Sustainability Initiative", status: "On track", progress: 30, owner: "Rita S.", startDate: "20 Oct 2026", endDate: "31 Mar 2027", agentsEnabled: false },
-  { id: "PRJ-006", name: "Supplier Onboarding", status: "At risk", progress: 38, owner: "Priya S.", startDate: "01 Nov 2026", endDate: "15 Feb 2027", agentsEnabled: false },
-  { id: "PRJ-007", name: "Northstar Rolling Mill Modernization", status: "On track", progress: 62, owner: "Meera S.", startDate: "05 Sep 2026", endDate: "15 Apr 2027", agentsEnabled: true },
-  { id: "PRJ-008", name: "Precision CNC Cell Expansion", status: "At risk", progress: 41, owner: "Anita R.", startDate: "18 Sep 2026", endDate: "10 May 2027", agentsEnabled: true },
-  { id: "PRJ-009", name: "Evergreen Packaging Line 3", status: "On track", progress: 76, owner: "Priya N.", startDate: "01 Aug 2026", endDate: "28 Dec 2026", agentsEnabled: false },
-  { id: "PRJ-010", name: "Summit Pump Test Facility", status: "Delayed", progress: 24, owner: "Daniel L.", startDate: "12 Sep 2026", endDate: "30 Jun 2027", agentsEnabled: true },
-  { id: "PRJ-011", name: "Factory Energy Optimization", status: "On track", progress: 53, owner: "Rita S.", startDate: "01 Oct 2026", endDate: "31 May 2027", agentsEnabled: true },
-  { id: "PRJ-012", name: "Quality Systems Upgrade", status: "At risk", progress: 35, owner: "Michael T.", startDate: "15 Oct 2026", endDate: "15 Mar 2027", agentsEnabled: false },
-];
+const formatDate = (value: string | null): string =>
+  value ? new Date(`${value}T12:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
-const pageSize = 6;
-
-function statusClass(status: ProjectStatus): string {
-  return status === "On track" ? "project-status--on-track" : status === "At risk" ? "project-status--at-risk" : "project-status--delayed";
-}
-
-function dateLabel(value: string): string {
-  const date = new Date(`${value}T12:00:00`);
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(date);
-}
+type WizardState = { project: ProjectDetail | null } | null;
 
 export function ProjectsPage(): JSX.Element {
-  const [projects, setProjects] = useState(initialProjects);
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All status");
-  const [ownerFilter, setOwnerFilter] = useState("All owners");
-  const [page, setPage] = useState(1);
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [name, setName] = useState("");
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const { business, withBusiness } = useBusiness();
+  const canWrite = canWriteProjects(user?.role);
+
+  const [search, setSearch] = useState("");
+  const [schedule, setSchedule] = useState("");
   const [owner, setOwner] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [agentsEnabled, setAgentsEnabled] = useState(true);
-  const owners = useMemo(() => [...new Set(projects.map((project) => project.owner))], [projects]);
+  const [plant, setPlant] = useState("");
+  const [budget, setBudget] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [wizard, setWizard] = useState<WizardState>(null);
+  const [menuFor, setMenuFor] = useState<number | null>(null);
+  const [notice, setNotice] = useState("");
+  const [noticeTone, setNoticeTone] = useState<"ok" | "error">("ok");
+  const menuRef = useRef<HTMLDivElement>(null);
+  const debouncedSearch = useDebounced(search);
 
-  const filteredProjects = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    return projects.filter((project) => {
-      const matchesQuery = !normalizedQuery || `${project.name} ${project.id} ${project.owner}`.toLowerCase().includes(normalizedQuery);
-      const matchesStatus = statusFilter === "All status" || project.status === statusFilter;
-      const matchesOwner = ownerFilter === "All owners" || project.owner === ownerFilter;
-      return matchesQuery && matchesStatus && matchesOwner;
-    });
-  }, [ownerFilter, projects, query, statusFilter]);
-  const pageCount = Math.max(1, Math.ceil(filteredProjects.length / pageSize));
-  const visibleProjects = filteredProjects.slice((page - 1) * pageSize, page * pageSize);
-  const rangeStart = filteredProjects.length ? (page - 1) * pageSize + 1 : 0;
-  const rangeEnd = Math.min(page * pageSize, filteredProjects.length);
+  const band = BUDGET_BANDS[budget];
+  const params = {
+    search: debouncedSearch.trim(), schedule_status: schedule, owner, plant, business,
+    budget_min: band?.min, budget_max: band?.max, page, page_size: pageSize,
+  };
+  const list = useApiData<ProjectList>("/projects", params);
+  const summary = useApiData<ProjectSummary>("/projects/summary", { business });
+  const lookups = useApiData<Lookups>("/lookups");
 
-  const updateFilter = (setter: (value: string) => void, value: string) => {
+  useEffect(() => {
+    if (menuFor === null) return undefined;
+    const close = (event: MouseEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent && event.key !== "Escape") return;
+      if (event instanceof MouseEvent && menuRef.current?.contains(event.target as Node)) return;
+      setMenuFor(null);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [menuFor]);
+
+  const refresh = () => {
+    list.reload();
+    summary.reload();
+    lookups.reload();
+  };
+
+  const tell = (message: string, tone: "ok" | "error" = "ok") => {
+    setNotice(message);
+    setNoticeTone(tone);
+  };
+
+  const changeFilter = (setter: (value: string) => void) => (value: string) => {
     setter(value);
     setPage(1);
   };
 
-  const createProject = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const project: Project = {
-      id: `PRJ-${String(Date.now()).slice(-3)}`,
-      name: name.trim(),
-      status: "On track",
-      progress: 0,
-      owner: owner.trim(),
-      startDate: dateLabel(startDate),
-      endDate: dateLabel(endDate),
-      agentsEnabled,
-    };
-    setProjects((current) => [project, ...current]);
-    setQuery("");
-    setStatusFilter("All status");
-    setOwnerFilter("All owners");
-    setPage(1);
-    setCreateOpen(false);
-    setName("");
-    setOwner("");
-    setStartDate("");
-    setEndDate("");
-    setAgentsEnabled(true);
+  const openEdit = async (project: Project) => {
+    setMenuFor(null);
+    try {
+      const { data } = await api.get<ProjectDetail>(`/projects/${project.id}`);
+      setWizard({ project: data });
+    } catch (error) {
+      tell(getApiErrorMessage(error, "Could not open this project for editing."), "error");
+    }
   };
 
-  const toggleAgents = (project: Project) => {
-    setProjects((current) => current.map((item) =>
-      item.id === project.id ? { ...item, agentsEnabled: !item.agentsEnabled } : item,
-    ));
+  const toggleAgents = async (project: Project) => {
+    setMenuFor(null);
+    try {
+      await api.patch(`/projects/${project.id}`, { ai_agents_enabled: !project.ai_agents_enabled });
+      tell(`AI agents ${project.ai_agents_enabled ? "turned off" : "enabled"} for ${project.name}.`);
+      refresh();
+    } catch (error) {
+      tell(getApiErrorMessage(error, "Could not change the AI agent setting."), "error");
+    }
   };
+
+  const data = list.data;
+  const total = data?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const rangeStart = total ? (page - 1) * pageSize + 1 : 0;
+  const rangeEnd = Math.min(page * pageSize, total);
+  const counts = summary.data;
+  const filtersActive = Boolean(debouncedSearch.trim() || schedule || owner || plant || budget);
+
+  const cards = [
+    { key: "total", label: "Total Projects", value: counts?.total ?? 0, tone: "blue", icon: "▤" },
+    { key: "on", label: "On Track", value: counts?.on_track ?? 0, tone: "green", icon: "✓" },
+    { key: "risk", label: "At Risk", value: counts?.at_risk ?? 0, tone: "amber", icon: "△" },
+    { key: "late", label: "Delayed", value: counts?.delayed ?? 0, tone: "red", icon: "◷" },
+    { key: "done", label: "Completed", value: counts?.completed ?? 0, tone: "violet", icon: "★" },
+  ];
 
   return (
-    <section className="projects-page">
-      <header className="projects-heading">
-        <div><h1>Projects</h1><p>Manage all projects across the organization</p></div>
-        <button type="button" className="projects-create-button" onClick={() => setCreateOpen(true)}>＋ Create project</button>
+    <section className="pl-page">
+      <header className="pl-heading">
+        <div>
+          <h1>Projects</h1>
+          <p>Manage all projects across the organization{business ? ` · ${business}` : ""}</p>
+        </div>
+        {canWrite ? (
+          <button type="button" className="pl-primary" disabled={!lookups.data} onClick={() => setWizard({ project: null })}>＋ Create Project</button>
+        ) : null}
       </header>
 
-      <section className="projects-table-card" aria-label="Project register">
-        <div className="projects-toolbar">
-          <label className="projects-search">
+      <Notice message={notice} tone={noticeTone} />
+      {lookups.error ? <Notice message={`Project form options could not be loaded. ${lookups.error}`} tone="error" /> : null}
+
+      <div className="pl-kpis" aria-label="Project summary">
+        {cards.map((card) => (
+          <article className="pl-kpi" key={card.key}>
+            <span className={`pl-kpi-icon pl-tone-${card.tone}`} aria-hidden="true">{card.icon}</span>
+            <span className="pl-kpi-copy">
+              <small>{card.label}</small>
+              <strong>{summary.loading && !counts ? "–" : card.value}</strong>
+            </span>
+            {card.key === "total" ? null : <span className={`pl-kpi-pct pl-text-${card.tone}`}>{percent(card.value, counts?.total ?? 0)}%</span>}
+          </article>
+        ))}
+      </div>
+
+      <section className="pl-card" aria-label="Project register">
+        <div className="pl-toolbar">
+          <label className="pl-search">
             <span aria-hidden="true">⌕</span>
             <input
               aria-label="Search projects"
-              placeholder="Search projects"
-              value={query}
-              onChange={(event) => updateFilter(setQuery, event.target.value)}
+              placeholder="Search projects by name, owner or ID..."
+              value={search}
+              onChange={(event) => { setSearch(event.target.value); setPage(1); }}
             />
-            {query ? <button type="button" aria-label="Clear project search" onClick={() => updateFilter(setQuery, "")}>×</button> : null}
+            {search ? <button type="button" aria-label="Clear project search" onClick={() => { setSearch(""); setPage(1); }}>×</button> : null}
           </label>
-          <label className="projects-filter">
-            <span className="visually-hidden">Filter by status</span>
-            <select aria-label="Filter by status" value={statusFilter} onChange={(event) => updateFilter(setStatusFilter, event.target.value)}>
-              <option>All status</option><option>On track</option><option>At risk</option><option>Delayed</option>
-            </select>
-          </label>
-          <label className="projects-filter">
-            <span className="visually-hidden">Filter by owner</span>
-            <select aria-label="Filter by owner" value={ownerFilter} onChange={(event) => updateFilter(setOwnerFilter, event.target.value)}>
-              <option>All owners</option>
-              {owners.map((name) => <option key={name}>{name}</option>)}
-            </select>
-          </label>
+          <select aria-label="Filter by status" value={schedule} onChange={(event) => changeFilter(setSchedule)(event.target.value)}>
+            <option value="">All Status</option>
+            {["On track", "At risk", "Delayed", "Completed"].map((option) => <option key={option}>{option}</option>)}
+          </select>
+          <select aria-label="Filter by owner" value={owner} onChange={(event) => changeFilter(setOwner)(event.target.value)}>
+            <option value="">All Owners</option>
+            {(data?.owners ?? []).map((name) => <option key={name}>{name}</option>)}
+          </select>
+          <select aria-label="Filter by plant" value={plant} onChange={(event) => changeFilter(setPlant)(event.target.value)}>
+            <option value="">All Plants</option>
+            {(data?.plants ?? []).map((name) => <option key={name}>{name}</option>)}
+          </select>
+          <select aria-label="Filter by budget" value={budget} onChange={(event) => changeFilter(setBudget)(event.target.value)}>
+            <option value="">All Budgets</option>
+            {Object.entries(BUDGET_BANDS).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
+          </select>
+          {filtersActive ? (
+            <button type="button" className="pl-link" onClick={() => { setSearch(""); setSchedule(""); setOwner(""); setPlant(""); setBudget(""); setPage(1); }}>Clear filters</button>
+          ) : null}
         </div>
 
-        <div className="projects-table-scroll">
-          <table className="projects-table">
-            <thead>
-              <tr><th>Project name</th><th>Status</th><th>Progress</th><th>Owner</th><th>Start date</th><th>End date</th><th>AI agents</th></tr>
-            </thead>
-            <tbody>
-              {visibleProjects.map((project) => (
-                <tr key={project.id}>
-                  <td>
-                    <button type="button" className="project-name-button" onClick={() => setSelectedProject(project)}>
-                      <span className="project-initial">{project.name.charAt(0).toUpperCase()}</span>
-                      <span><strong>{project.name}</strong><small>{project.id}</small></span>
-                    </button>
-                  </td>
-                  <td><span className={`project-status ${statusClass(project.status)}`}>{project.status}</span></td>
-                  <td>
-                    <div className="project-progress">
-                      <span className="project-progress-track"><span className={`project-progress-value ${statusClass(project.status)}`} style={{ width: `${project.progress}%` }} /></span>
-                      <strong>{project.progress}%</strong>
-                    </div>
-                  </td>
-                  <td>{project.owner}</td><td>{project.startDate}</td><td>{project.endDate}</td>
-                  <td>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={project.agentsEnabled}
-                      aria-label={`${project.agentsEnabled ? "Disable" : "Enable"} AI agents for ${project.name}`}
-                      className={`project-agent-toggle${project.agentsEnabled ? " is-enabled" : ""}`}
-                      onClick={() => toggleAgents(project)}
-                    >
-                      {project.agentsEnabled ? "Enabled" : "Off"}
-                    </button>
-                  </td>
+        {list.error && !data ? <ErrorState message={list.error} onRetry={list.reload} /> : null}
+        {list.loading && !data ? <LoadingState label="Loading projects…" /> : null}
+
+        {data ? (
+          <div className="pl-scroll">
+            <table className="pl-table">
+              <thead>
+                <tr>
+                  <th>#</th><th>Project Name</th><th>Project ID</th><th>Plant / Location</th><th>Owner</th>
+                  <th>Start Date</th><th>End Date</th><th>Budget (USD)</th><th>Progress</th><th>Status</th><th>Health</th>
+                  <th><span className="visually-hidden">Actions</span></th>
                 </tr>
-              ))}
-              {!visibleProjects.length ? <tr><td colSpan={7} className="projects-empty">No projects match these filters.</td></tr> : null}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {data.items.map((project, index) => (
+                  <tr key={project.id} onClick={() => navigate(withBusiness(`/projects/${project.id}`))}>
+                    <td className="pl-muted">{(page - 1) * pageSize + index + 1}</td>
+                    <td>
+                      <Link className="pl-name" to={withBusiness(`/projects/${project.id}`)} onClick={(event) => event.stopPropagation()}>
+                        <span className={`pl-initial pl-avatar--${project.id % 6}`} aria-hidden="true">{project.name.charAt(0).toUpperCase()}</span>
+                        <strong>{project.name}</strong>
+                      </Link>
+                    </td>
+                    <td>{project.code ?? "—"}</td>
+                    <td>{project.location ?? "—"}</td>
+                    <td><span className="pl-owner"><Avatar name={project.owner} />{project.owner ?? "—"}</span></td>
+                    <td>{formatDate(project.start_date)}</td>
+                    <td>{formatDate(project.end_date)}</td>
+                    <td>{formatMoney(project.budget)}</td>
+                    <td><ProgressBar value={project.progress} tone={scheduleTone(project.schedule_status)} /></td>
+                    <td><Pill value={project.schedule_status} /></td>
+                    <td><Pill value={project.health} kind="health" /></td>
+                    <td className="pl-actions" onClick={(event) => event.stopPropagation()}>
+                      <div ref={menuFor === project.id ? menuRef : undefined} className="pl-menu-wrap">
+                        <button
+                          type="button"
+                          className="pl-menu-button"
+                          aria-label={`Actions for ${project.name}`}
+                          aria-haspopup="menu"
+                          aria-expanded={menuFor === project.id}
+                          onClick={() => setMenuFor(menuFor === project.id ? null : project.id)}
+                        >
+                          ⋯
+                        </button>
+                        {menuFor === project.id ? (
+                          <div className="pl-menu" role="menu">
+                            <button type="button" role="menuitem" onClick={() => navigate(withBusiness(`/projects/${project.id}`))}>View details</button>
+                            {canWrite ? <button type="button" role="menuitem" onClick={() => void openEdit(project)}>Edit project</button> : null}
+                            <button type="button" role="menuitem" onClick={() => navigate(withBusiness(`/projects/${project.id}/milestones`))}>Open milestones</button>
+                            {canWrite ? (
+                              <button type="button" role="menuitem" onClick={() => void toggleAgents(project)}>
+                                {project.ai_agents_enabled ? "Turn AI agents off" : "Enable AI agents"}
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {!data.items.length ? (
+                  <tr>
+                    <td colSpan={12} className="pl-empty">
+                      {filtersActive ? "No projects match these filters." : canWrite ? "No projects yet. Use Create Project to add the first one." : "No projects yet."}
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
 
-        <footer className="projects-table-footer">
-          <span>Showing {rangeStart}–{rangeEnd} of {filteredProjects.length} projects</span>
-          <nav className="projects-pagination" aria-label="Project pages">
-            <button type="button" aria-label="Previous page" disabled={page === 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>‹</button>
-            {Array.from({ length: pageCount }, (_, index) => index + 1).map((pageNumber) => (
-              <button
-                type="button"
-                key={pageNumber}
-                aria-label={`Page ${pageNumber}`}
-                aria-current={page === pageNumber ? "page" : undefined}
-                className={page === pageNumber ? "is-current" : ""}
-                onClick={() => setPage(pageNumber)}
-              >
-                {pageNumber}
-              </button>
-            ))}
-            <button type="button" aria-label="Next page" disabled={page === pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}>›</button>
+        <footer className="pl-footer">
+          <span>Showing {rangeStart}–{rangeEnd} of {total} projects</span>
+          <nav className="pl-pages" aria-label="Project pages">
+            <button type="button" aria-label="Previous page" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>‹</button>
+            {Array.from({ length: pageCount }, (_, index) => index + 1)
+              .filter((number) => number === 1 || number === pageCount || Math.abs(number - page) <= 1)
+              .map((number) => (
+                <button key={number} type="button" aria-label={`Page ${number}`} aria-current={number === page ? "page" : undefined} className={number === page ? "is-current" : ""} onClick={() => setPage(number)}>{number}</button>
+              ))}
+            <button type="button" aria-label="Next page" disabled={page >= pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}>›</button>
           </nav>
+          <label className="pl-size">
+            <span className="visually-hidden">Projects per page</span>
+            <select aria-label="Projects per page" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>
+              {PAGE_SIZES.map((size) => <option key={size} value={size}>{size} / page</option>)}
+            </select>
+          </label>
         </footer>
       </section>
 
-      {createOpen ? (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreateOpen(false); }}>
-          <section className="feature-modal projects-modal" role="dialog" aria-modal="true" aria-labelledby="create-project-title">
-            <div className="modal-heading">
-              <div><span className="eyebrow">PROJECT SETUP</span><h2 id="create-project-title">Create a project</h2></div>
-              <button type="button" className="modal-close" aria-label="Close project wizard" onClick={() => setCreateOpen(false)}>×</button>
-            </div>
-            <form className="feature-form" onSubmit={createProject}>
-              <label>Project name<input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Factory expansion" /></label>
-              <label>Project owner<input required maxLength={60} value={owner} onChange={(event) => setOwner(event.target.value)} placeholder="Name or team" /></label>
-              <div className="form-row">
-                <label>Start date<input required type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label>
-                <label>End date<input required type="date" min={startDate || undefined} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label>
-              </div>
-              <label className="project-agent-option"><input type="checkbox" checked={agentsEnabled} onChange={(event) => setAgentsEnabled(event.target.checked)} /> Enable AI agents for this project</label>
-              <div className="modal-actions">
-                <button type="button" className="secondary-button" onClick={() => setCreateOpen(false)}>Cancel</button>
-                <button type="submit" className="projects-create-button">Create project</button>
-              </div>
-            </form>
-          </section>
-        </div>
-      ) : null}
-
-      {selectedProject ? (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedProject(null); }}>
-          <section className="feature-modal projects-modal" role="dialog" aria-modal="true" aria-labelledby="project-detail-title">
-            <div className="modal-heading">
-              <div><span className="eyebrow">{selectedProject.id}</span><h2 id="project-detail-title">{selectedProject.name}</h2></div>
-              <button type="button" className="modal-close" aria-label="Close project details" onClick={() => setSelectedProject(null)}>×</button>
-            </div>
-            <div className="project-detail-grid">
-              <div><span>Status</span><strong>{selectedProject.status}</strong></div>
-              <div><span>Progress</span><strong>{selectedProject.progress}%</strong></div>
-              <div><span>Owner</span><strong>{selectedProject.owner}</strong></div>
-              <div><span>Start date</span><strong>{selectedProject.startDate}</strong></div>
-              <div><span>End date</span><strong>{selectedProject.endDate}</strong></div>
-              <div><span>AI agents</span><strong>{selectedProject.agentsEnabled ? "Enabled" : "Off"}</strong></div>
-            </div>
-            <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setSelectedProject(null)}>Close</button></div>
-          </section>
-        </div>
+      {wizard ? (
+        <ProjectWizard
+          project={wizard.project}
+          lookups={lookups.data ?? EMPTY_LOOKUPS}
+          defaultOwner={user?.username ?? ""}
+          onClose={() => setWizard(null)}
+          onSaved={(saved) => {
+            setWizard(null);
+            tell(wizard.project ? `${saved.name} was updated.` : `${saved.name} was created.`);
+            setPage(1);
+            refresh();
+          }}
+        />
       ) : null}
     </section>
   );

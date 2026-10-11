@@ -56,7 +56,8 @@ def test_create_project_generates_code_and_lists_it(client):
     created = _project(client)
     assert created.status_code == 201
     assert created.json()["code"] == "PRJ001"
-    assert created.json()["health"] == "On track"
+    assert created.json()["schedule_status"] == "On track"
+    assert created.json()["health"] == "Good"
 
     listing = client.get("/api/v1/projects").json()
     assert listing["total"] == 1
@@ -81,10 +82,10 @@ def test_health_and_progress_derive_from_milestones(client):
     _milestone(client, pid, name="Vendor Delivery", status="Delayed", progress=20)
 
     project = client.get(f"/api/v1/projects/{pid}").json()
-    assert project["health"] == "Delayed"
+    assert project["schedule_status"] == "Delayed"
     assert project["progress"] == 40
-    assert client.get("/api/v1/projects", params={"health": "On track"}).json()["total"] == 0
-    assert client.get("/api/v1/projects", params={"health": "Delayed"}).json()["total"] == 1
+    assert client.get("/api/v1/projects", params={"schedule_status": "On track"}).json()["total"] == 0
+    assert client.get("/api/v1/projects", params={"schedule_status": "Delayed"}).json()["total"] == 1
 
 
 def test_milestone_status_and_progress_stay_consistent(client):

@@ -1,133 +1,181 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
-import { sampleBusinesses, sampleRisks, type SampleRisk } from "./sampleData";
+import api from "../api/client";
+import { getApiErrorMessage } from "../api/errors";
+import { useApiData } from "../api/useApiData";
+import { useBusiness } from "../api/useBusiness";
+import { Modal } from "../components/Modal";
+import { ErrorState, LoadingState, Notice } from "../components/ui";
+import { useAuth } from "../context/AuthContext";
+import type { ProjectList, Risk, RiskList } from "../types";
+import { formatDate } from "../components/ProjectUi";
+import { formatDateTime } from "../utils/format";
 
-type RiskFilterState = { type: "All" | "Risk" | "Issue"; severity: "All" | "High" | "Medium" | "Low"; status: "All" | SampleRisk["status"] };
+const LEVELS = ["Low", "Medium", "High"] as const;
+const IMPACTS = ["Low", "Medium", "High", "Critical"] as const;
+const STATUSES = ["Open", "Monitoring", "Resolved"] as const;
+const WRITE_ROLES = ["admin", "manager", "engineering"];
 
-const formatTimestamp = (value: string) => new Date(value).toLocaleString(undefined, {
-  month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
+interface FormState {
+  projectId: string;
+  title: string;
+  type: "Risk" | "Issue";
+  impact: string;
+  likelihood: string;
+  owner: string;
+  dueDate: string;
+  description: string;
+  mitigation: string;
+}
+
+const emptyForm = (projectId: string, owner: string): FormState => ({
+  projectId, title: "", type: "Risk", impact: "Medium", likelihood: "Medium", owner, dueDate: "", description: "", mitigation: "",
 });
-const formatDueDate = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString("en-GB", {
-  day: "numeric", month: "short", year: "numeric",
-});
-const levels = ["Low", "Medium", "High"] as const;
 
 export function RisksIssuesPage(): JSX.Element {
+  const { user } = useAuth();
+  const { business } = useBusiness();
   const [searchParams] = useSearchParams();
-  const requestedBusiness = searchParams.get("business") ?? "";
-  const business = sampleBusinesses.includes(requestedBusiness) ? requestedBusiness : "";
-  const [risks, setRisks] = useState(sampleRisks);
-  const [filters, setFilters] = useState<RiskFilterState>({ type: "All", severity: "All", status: "All" });
-  const [selectedRisk, setSelectedRisk] = useState<SampleRisk | null>(null);
+  const projectId = searchParams.get("project_id") ?? "";
+  const canWrite = WRITE_ROLES.includes(user?.role ?? "");
+
+  const [type, setType] = useState("");
+  const [severity, setSeverity] = useState("");
+  const [status, setStatus] = useState("");
+  const list = useApiData<RiskList>("/risks", { project_id: projectId, business, type, severity, status });
+  const everything = useApiData<RiskList>("/risks", { project_id: projectId, business });
+  const projects = useApiData<ProjectList>(canWrite ? "/projects" : null, { page_size: 100, business });
+
+  const [selected, setSelected] = useState<Risk | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [suggestionsVisible, setSuggestionsVisible] = useState(false);
-  const [feedback, setFeedback] = useState("");
-  const [newTitle, setNewTitle] = useState("");
-  const [newOwner, setNewOwner] = useState("");
-  const [newDueDate, setNewDueDate] = useState("");
-  const [newSeverity, setNewSeverity] = useState<SampleRisk["severity"]>("Medium");
-  const [newType, setNewType] = useState<SampleRisk["type"]>("Risk");
-  const [newLikelihood, setNewLikelihood] = useState<SampleRisk["likelihood"]>("Medium");
-  const [newImpactLevel, setNewImpactLevel] = useState<SampleRisk["impactLevel"]>("Medium");
+  const [form, setForm] = useState<FormState>(emptyForm("", ""));
+  const [formError, setFormError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [suggestions, setSuggestions] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [noticeTone, setNoticeTone] = useState<"ok" | "error">("ok");
 
-  const businessRisks = useMemo(
-    () => risks.filter((risk) => !business || risk.business === business),
-    [business, risks],
-  );
-  const visibleRisks = businessRisks.filter((risk) =>
-    (filters.type === "All" || risk.type === filters.type)
-    && (filters.severity === "All" || risk.severity === filters.severity)
-    && (filters.status === "All" || risk.status === filters.status),
-  );
+  const items = list.data?.items ?? [];
+  const all = everything.data?.items ?? [];
+  const reload = () => { list.reload(); everything.reload(); };
+  const tell = (message: string, tone: "ok" | "error" = "ok") => { setNotice(message); setNoticeTone(tone); };
 
-  const changeStatus = (risk: SampleRisk, status: SampleRisk["status"]) => {
-    setRisks((items) => items.map((item) => item.id === risk.id ? { ...item, status } : item));
-    setSelectedRisk((current) => current?.id === risk.id ? { ...current, status } : current);
+  const matrix = useMemo(() => {
+    const counts = new Map<string, number>();
+    all.filter((risk) => risk.status !== "Resolved").forEach((risk) => {
+      const impact = risk.impact === "Critical" ? "High" : risk.impact;
+      const key = `${risk.likelihood}|${impact}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+    return counts;
+  }, [all]);
+
+  const advice = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const open = all.filter((risk) => risk.status !== "Resolved");
+    const lines: string[] = [];
+    open.filter((risk) => risk.severity === "High").slice(0, 3).forEach((risk) => {
+      lines.push(risk.mitigation ? `Review "${risk.title}" with ${risk.owner ?? "its owner"}: ${risk.mitigation}` : `Agree a mitigation for "${risk.title}" (High severity, no plan recorded).`);
+    });
+    open.filter((risk) => risk.due_date && risk.due_date < today).slice(0, 2).forEach((risk) => {
+      lines.push(`"${risk.title}" is past its due date of ${formatDate(risk.due_date)}. Confirm a new date or close it.`);
+    });
+    return lines;
+  }, [all]);
+
+  const openCreate = () => {
+    setForm(emptyForm(projectId || (projects.data?.items[0] ? String(projects.data.items[0].id) : ""), user?.username ?? ""));
+    setFormError("");
+    setShowCreate(true);
   };
 
-  const addRisk = (event: React.FormEvent<HTMLFormElement>) => {
+  const create = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const risk: SampleRisk = {
-      id: `RSK-${String(Date.now()).slice(-4)}`,
-      business: business || sampleBusinesses[0],
-      type: newType,
-      title: newTitle.trim(),
-      description: "New demo record. Add full production context when connecting live project data.",
-      severity: newSeverity,
-      likelihood: newLikelihood,
-      impactLevel: newImpactLevel,
-      status: "Open",
-      line: "Unassigned line",
-      process: "Production review",
-      occurredAt: new Date().toISOString(),
-      dueDate: newDueDate,
-      owner: newOwner.trim(),
-      impact: "Impact assessment required",
-      response: "Review the issue and assign a mitigation action.",
-    };
-    setRisks((items) => [risk, ...items]);
-    setFilters({ type: "All", severity: "All", status: "All" });
-    setShowCreate(false);
-    setNewTitle("");
-    setNewOwner("");
-    setNewDueDate("");
-    setNewLikelihood("Medium");
-    setNewImpactLevel("Medium");
-    setFeedback("Risk or issue added.");
+    if (!form.projectId) { setFormError("Choose the project this belongs to."); return; }
+    setSaving(true);
+    setFormError("");
+    try {
+      await api.post("/risks", {
+        project_id: Number(form.projectId), title: form.title.trim(), risk_type: form.type, impact: form.impact,
+        likelihood: form.likelihood, owner: form.owner.trim(), due_date: form.dueDate || null,
+        description: form.description.trim() || null, mitigation: form.mitigation.trim() || null,
+      });
+      setShowCreate(false);
+      setType(""); setSeverity(""); setStatus("");
+      tell("Risk or issue added.");
+      reload();
+    } catch (error) {
+      setFormError(getApiErrorMessage(error, "Could not save this risk or issue."));
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const matrixCount = (likelihood: string, impact: string) => businessRisks.filter(
-    (risk) => risk.likelihood === likelihood && risk.impactLevel === impact && risk.status !== "Resolved",
-  ).length;
+  const changeStatus = async (risk: Risk, next: string) => {
+    try {
+      const { data } = await api.patch<Risk>(`/risks/${risk.id}`, { status: next });
+      setSelected(data);
+      reload();
+    } catch (error) {
+      tell(getApiErrorMessage(error, "Could not update the status."), "error");
+    }
+  };
+
+  const matrixCount = (likelihood: string, impact: string) => matrix.get(`${likelihood}|${impact}`) ?? 0;
+  const scope = business || (projectId ? "Selected project" : "");
 
   return (
     <section className="feature-page risks-page screenshot-register-page">
       <header className="feature-heading">
-        <div><h1>Risks &amp; issues</h1><p>Manage risks, issues and mitigation actions{business ? ` · ${business}` : ""}</p></div>
-        <button type="button" className="risk-add-button" onClick={() => { setFeedback(""); setShowCreate(true); }}>＋ Add risk / issue</button>
+        <div><h1>Risks &amp; issues</h1><p>Manage risks, issues and mitigation actions{scope ? ` · ${scope}` : ""}</p></div>
+        {canWrite ? <button type="button" className="risk-add-button" disabled={!projects.data} onClick={openCreate}>＋ Add risk / issue</button> : null}
       </header>
       <div className="risk-filters" aria-label="Risk filters">
-        <label><span className="visually-hidden">Filter by type</span><select aria-label="Filter by type" value={filters.type} onChange={(event) => setFilters((current) => ({ ...current, type: event.target.value as RiskFilterState["type"] }))}><option value="All">All types</option><option>Risk</option><option>Issue</option></select></label>
-        <label><span className="visually-hidden">Filter by severity</span><select aria-label="Filter by severity" value={filters.severity} onChange={(event) => setFilters((current) => ({ ...current, severity: event.target.value as RiskFilterState["severity"] }))}><option value="All">All severity</option>{levels.slice().reverse().map((level) => <option key={level}>{level}</option>)}</select></label>
-        <label><span className="visually-hidden">Filter by status</span><select aria-label="Filter by status" value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value as RiskFilterState["status"] }))}><option value="All">All status</option><option>Open</option><option>Monitoring</option><option>Resolved</option></select></label>
+        <label><span className="visually-hidden">Filter by type</span><select aria-label="Filter by type" value={type} onChange={(event) => setType(event.target.value)}><option value="">All types</option><option>Risk</option><option>Issue</option></select></label>
+        <label><span className="visually-hidden">Filter by severity</span><select aria-label="Filter by severity" value={severity} onChange={(event) => setSeverity(event.target.value)}><option value="">All severity</option>{[...LEVELS].reverse().map((level) => <option key={level}>{level}</option>)}</select></label>
+        <label><span className="visually-hidden">Filter by status</span><select aria-label="Filter by status" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">All status</option>{STATUSES.map((item) => <option key={item}>{item}</option>)}</select></label>
       </div>
-      {feedback ? <p role="status" className="screen-feedback">{feedback}</p> : null}
+      <Notice message={notice} tone={noticeTone} />
+      {list.error ? <ErrorState message={list.error} onRetry={reload} /> : null}
 
       <div className="risk-register-grid">
         <section className="feature-card risk-register-card" aria-label="Risk and issue register">
-          <div className="responsive-table-wrap">
-            <table className="feature-table risk-register-table" aria-label="Risk and issue register">
-              <thead><tr><th>Type</th><th>Title</th><th>Severity</th><th>Status</th><th>Owner</th><th>Due date</th></tr></thead>
-              <tbody>
-                {visibleRisks.map((risk) => (
-                  <tr key={risk.id}>
-                    <td><span className={`risk-type-pill risk-type--${risk.type.toLowerCase()}`}>{risk.type}</span></td>
-                    <td><button type="button" className="table-title-button" onClick={() => setSelectedRisk(risk)}>{risk.title}</button></td>
-                    <td><span className={`priority-pill priority-${risk.severity.toLowerCase()}`}>{risk.severity}</span></td>
-                    <td><span className={`status-pill status-${risk.status.toLowerCase()}`}>{risk.status}</span></td>
-                    <td>{risk.owner}</td><td>{formatDueDate(risk.dueDate)}</td>
-                  </tr>
-                ))}
-                {!visibleRisks.length ? <tr><td colSpan={6} className="table-empty">No risks or issues match the selected filters.</td></tr> : null}
-              </tbody>
-            </table>
-          </div>
-          <div className="table-footer">Showing {visibleRisks.length} of {businessRisks.length} risks and issues</div>
+          {list.loading && !list.data ? <LoadingState /> : (
+            <div className="responsive-table-wrap">
+              <table className="feature-table risk-register-table" aria-label="Risk and issue register">
+                <thead><tr><th>Type</th><th>Title</th><th>Project</th><th>Severity</th><th>Status</th><th>Owner</th><th>Due date</th></tr></thead>
+                <tbody>
+                  {items.map((risk) => (
+                    <tr key={risk.id}>
+                      <td><span className={`risk-type-pill risk-type--${risk.risk_type.toLowerCase()}`}>{risk.risk_type}</span></td>
+                      <td><button type="button" className="table-title-button" onClick={() => setSelected(risk)}>{risk.title}</button></td>
+                      <td>{risk.project_name ?? "—"}</td>
+                      <td><span className={`priority-pill priority-${risk.severity.toLowerCase()}`}>{risk.severity}</span></td>
+                      <td><span className={`status-pill status-${risk.status.toLowerCase()}`}>{risk.status}</span></td>
+                      <td>{risk.owner ?? "—"}</td><td>{formatDate(risk.due_date)}</td>
+                    </tr>
+                  ))}
+                  {list.data && !items.length ? <tr><td colSpan={7} className="table-empty">{type || severity || status ? "No risks or issues match the selected filters." : "No risks or issues have been recorded yet."}</td></tr> : null}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="table-footer">Showing {items.length} of {list.data?.total ?? 0} risks and issues</div>
         </section>
 
         <aside className="feature-card risk-matrix-card">
           <div className="feature-card-heading"><div><h2>Risk matrix</h2><p>Likelihood × impact · open items</p></div></div>
           <div className="risk-matrix-grid" role="grid" aria-label="Open risk matrix">
             <span className="matrix-corner" aria-hidden="true" />
-            {levels.map((likelihood) => <span key={`column-${likelihood}`} className="matrix-column-label">{likelihood}</span>)}
-            {levels.slice().reverse().map((likelihood) => (
+            {LEVELS.map((level) => <span key={`column-${level}`} className="matrix-column-label">{level}</span>)}
+            {[...LEVELS].reverse().map((likelihood) => (
               <div className="matrix-row" role="row" key={likelihood}>
                 <span className="matrix-row-label">{likelihood === "Medium" ? "Med" : likelihood}</span>
-                {levels.map((impact) => {
+                {LEVELS.map((impact) => {
                   const count = matrixCount(likelihood, impact);
-                  const riskLevel = levels.indexOf(likelihood) + levels.indexOf(impact);
-                  return <span key={`${likelihood}-${impact}`} role="gridcell" aria-label={`${likelihood} likelihood, ${impact} impact: ${count} open items`} className={`matrix-cell matrix-cell--${riskLevel < 2 ? "low" : riskLevel < 4 ? "medium" : "high"}`}>{count || ""}</span>;
+                  const level = LEVELS.indexOf(likelihood) + LEVELS.indexOf(impact);
+                  return <span key={`${likelihood}-${impact}`} role="gridcell" aria-label={`${likelihood} likelihood, ${impact} impact: ${count} open items`} className={`matrix-cell matrix-cell--${level < 2 ? "low" : level < 4 ? "medium" : "high"}`}>{count || ""}</span>;
                 })}
               </div>
             ))}
@@ -139,37 +187,62 @@ export function RisksIssuesPage(): JSX.Element {
 
       <aside className="risk-suggestions-callout">
         <span className="risk-suggestions-icon" aria-hidden="true">⚠</span>
-        <span><strong>Proactively manage risks</strong><small>AI identifies and suggests mitigation based on project data.</small></span>
-        <button type="button" onClick={() => setSuggestionsVisible((visible) => !visible)}>{suggestionsVisible ? "Hide suggestions" : "View suggestions"}</button>
+        <span><strong>Proactively manage risks</strong><small>Suggestions are based on your open items and due dates.</small></span>
+        <button type="button" onClick={() => setSuggestions((visible) => !visible)}>{suggestions ? "Hide suggestions" : "View suggestions"}</button>
       </aside>
-      {suggestionsVisible ? <div className="risk-suggestion-panel" role="region" aria-label="Risk mitigation suggestions"><strong>Recommended next steps</strong><ul><li>Review high-severity open items with their owners.</li><li>Confirm mitigation dates for risks affecting the critical path.</li></ul></div> : null}
-
-      {showCreate ? (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowCreate(false); }}>
-          <section className="feature-modal" role="dialog" aria-modal="true" aria-labelledby="add-risk-title">
-            <div className="modal-heading"><div><span className="eyebrow">RISK REGISTER</span><h2 id="add-risk-title">Add risk or issue</h2></div><button type="button" className="modal-close" aria-label="Close add risk form" onClick={() => setShowCreate(false)}>×</button></div>
-            <form className="feature-form" onSubmit={addRisk}>
-              <label>Title<input required maxLength={120} value={newTitle} onChange={(event) => setNewTitle(event.target.value)} /></label>
-              <div className="form-row"><label>Type<select value={newType} onChange={(event) => setNewType(event.target.value as SampleRisk["type"])}><option>Risk</option><option>Issue</option></select></label><label>Severity<select value={newSeverity} onChange={(event) => setNewSeverity(event.target.value as SampleRisk["severity"])}><option>High</option><option>Medium</option><option>Low</option></select></label></div>
-              <div className="form-row"><label>Owner<input required maxLength={60} value={newOwner} onChange={(event) => setNewOwner(event.target.value)} /></label><label>Due date<input required type="date" value={newDueDate} onChange={(event) => setNewDueDate(event.target.value)} /></label></div>
-              <div className="form-row"><label>Likelihood<select value={newLikelihood} onChange={(event) => setNewLikelihood(event.target.value as SampleRisk["likelihood"])}><option>High</option><option>Medium</option><option>Low</option></select></label><label>Impact<select value={newImpactLevel} onChange={(event) => setNewImpactLevel(event.target.value as SampleRisk["impactLevel"])}><option>High</option><option>Medium</option><option>Low</option></select></label></div>
-              <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setShowCreate(false)}>Cancel</button><button type="submit" className="risk-add-button">Add risk / issue</button></div>
-            </form>
-          </section>
+      {suggestions ? (
+        <div className="risk-suggestion-panel" role="region" aria-label="Risk mitigation suggestions">
+          <strong>Recommended next steps</strong>
+          {advice.length ? <ul>{advice.map((line) => <li key={line}>{line}</li>)}</ul> : <p className="pl-muted">Nothing needs attention right now. No high-severity or overdue items are open.</p>}
         </div>
       ) : null}
 
-      {selectedRisk ? (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedRisk(null); }}>
-          <section className="feature-modal" role="dialog" aria-modal="true" aria-labelledby="risk-detail-title">
-            <div className="modal-heading"><div><span className={`priority-pill priority-${selectedRisk.severity.toLowerCase()}`}>{selectedRisk.severity} severity · {selectedRisk.id}</span><h2 id="risk-detail-title">{selectedRisk.title}</h2></div><button type="button" className="modal-close" aria-label="Close risk details" onClick={() => setSelectedRisk(null)}>×</button></div>
-            <p className="modal-description">{selectedRisk.description}</p>
-            <div className="risk-fact-grid"><div><span>Manufacturing line</span><strong>{selectedRisk.line}</strong></div><div><span>Process / equipment</span><strong>{selectedRisk.process}</strong></div><div><span>Occurred at</span><strong>{formatTimestamp(selectedRisk.occurredAt)}</strong></div><div><span>Issue owner</span><strong>{selectedRisk.owner}</strong></div><div className="risk-fact-wide"><span>Potential impact</span><strong>{selectedRisk.impact}</strong></div></div>
-            <div className="response-callout"><span>Recommended next step</span><p>{selectedRisk.response}</p></div>
-            <label className="risk-status-control">Update issue status<select value={selectedRisk.status} onChange={(event) => changeStatus(selectedRisk, event.target.value as SampleRisk["status"])}><option>Open</option><option>Monitoring</option><option>Resolved</option></select></label>
-            <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setSelectedRisk(null)}>Close</button></div>
-          </section>
-        </div>
+      {showCreate ? (
+        <Modal eyebrow="RISK REGISTER" title="Add risk or issue" onClose={() => setShowCreate(false)}>
+          <form className="feature-form" onSubmit={(event) => void create(event)}>
+            <label>Project
+              <select required value={form.projectId} onChange={(event) => setForm({ ...form, projectId: event.target.value })}>
+                <option value="">Select project</option>
+                {(projects.data?.items ?? []).map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+              </select>
+            </label>
+            <label>Title<input required minLength={2} maxLength={200} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
+            <div className="form-row">
+              <label>Type<select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as "Risk" | "Issue" })}><option>Risk</option><option>Issue</option></select></label>
+              <label>Owner<input required maxLength={100} value={form.owner} onChange={(event) => setForm({ ...form, owner: event.target.value })} /></label>
+            </div>
+            <div className="form-row">
+              <label>Likelihood<select value={form.likelihood} onChange={(event) => setForm({ ...form, likelihood: event.target.value })}>{LEVELS.map((level) => <option key={level}>{level}</option>)}</select></label>
+              <label>Impact<select value={form.impact} onChange={(event) => setForm({ ...form, impact: event.target.value })}>{IMPACTS.map((level) => <option key={level}>{level}</option>)}</select></label>
+            </div>
+            <label>Due date<input type="date" value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} /></label>
+            <label>Description<textarea rows={3} maxLength={500} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
+            <label>Mitigation / next step<textarea rows={3} maxLength={1000} value={form.mitigation} onChange={(event) => setForm({ ...form, mitigation: event.target.value })} /></label>
+            <p className="pl-muted">Severity is calculated from likelihood and impact.</p>
+            {formError ? <p className="wiz-error" role="alert">{formError}</p> : null}
+            <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setShowCreate(false)}>Cancel</button><button type="submit" className="risk-add-button" disabled={saving}>{saving ? "Saving…" : "Add risk / issue"}</button></div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {selected ? (
+        <Modal eyebrow={`${selected.severity} severity · RSK-${selected.id}`} title={selected.title} onClose={() => setSelected(null)}>
+          <p className="modal-description">{selected.description ?? "No description recorded."}</p>
+          <div className="risk-fact-grid">
+            <div><span>Project</span><strong>{selected.project_name ?? "—"}</strong></div>
+            <div><span>Owner</span><strong>{selected.owner ?? "—"}</strong></div>
+            <div><span>Likelihood / impact</span><strong>{selected.likelihood ?? "—"} / {selected.impact ?? "—"}</strong></div>
+            <div><span>Due date</span><strong>{formatDate(selected.due_date)}</strong></div>
+            <div className="risk-fact-wide"><span>Recorded</span><strong>{formatDateTime(selected.created_at)}</strong></div>
+          </div>
+          <div className="response-callout"><span>Recommended next step</span><p>{selected.mitigation ?? "No mitigation has been recorded yet."}</p></div>
+          {canWrite ? (
+            <label className="risk-status-control">Update status
+              <select value={selected.status} onChange={(event) => void changeStatus(selected, event.target.value)}>{STATUSES.map((item) => <option key={item}>{item}</option>)}</select>
+            </label>
+          ) : null}
+          <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setSelected(null)}>Close</button></div>
+        </Modal>
       ) : null}
     </section>
   );

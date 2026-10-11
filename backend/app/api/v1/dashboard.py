@@ -7,8 +7,21 @@ from app.api.deps import require_roles
 from app.db.session import get_db
 from app.models.user import User
 from app.models.workflow import WorkflowRun
+from app.schemas.operations import OverviewOut
+from app.services.overview_service import build_overview
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+
+READ_ROLES = ("admin", "manager", "engineering", "approver", "viewer")
+
+
+@router.get("/overview")
+def overview(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_roles(*READ_ROLES))],
+    business: Annotated[str | None, Query(max_length=150)] = None,
+) -> OverviewOut:
+    return build_overview(db, business)
 
 
 @router.get("/summary")

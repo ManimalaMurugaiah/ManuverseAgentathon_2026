@@ -32,7 +32,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception from exc
 
     user = db.query(User).filter(User.username == username).first()
-    if user is None:
+    if user is None or user.is_active is False:
         raise credentials_exception
     return user
 

@@ -1,0 +1,40 @@
+/* Page-specific additions for milestones, dependencies, settings and project pages */
+.milestone-table tr.is-selected td { background: #f2f7ff; }
+.milestone-table tbody tr { cursor: pointer; }
+.pl-critical { color: #d92f27; font-size: 12px; }
+.pl-check { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.pl-check input { width: auto; }
+.pl-evidence-form { display: flex; gap: 8px; margin-top: 10px; }
+.pl-evidence-form input { flex: 1; min-width: 0; padding: 7px 9px; border: 1px solid #d6dfec; border-radius: 7px; font: inherit; font-size: 12px; }
+.milestone-attachments span { padding: 6px 9px; border-radius: 6px; background: #f1f5fa; color: #51627a; font-size: 11px; }
+.report-project-select { min-height: 36px; padding: 0 10px; border: 1px solid #d6dfec; border-radius: 8px; background: #fff; color: #14243c; font: inherit; font-size: 13px; }
+
+/* Dependency graph laid out from the real links */
+.dep-scroll { width: 100%; overflow: auto; padding-bottom: 6px; }
+.dep-canvas { position: relative; }
+.dep-edges { position: absolute; inset: 0; pointer-events: none; }
+.dep-canvas .dependency-node-button { text-align: left; }
+.dependency-node-button--not-started { border-color: #d3dbe8; background: #f4f6fa; }
+.dependency-node-button.dep-critical { box-shadow: 0 0 0 2px rgba(217, 47, 39, 0.35); }
+.dependency-node-button.dep-bottleneck { box-shadow: 0 0 0 3px #f1b232; }
+.dep-links { display: grid; gap: 10px; margin-top: 16px; padding-top: 14px; border-top: 1px solid #edf1f7; }
+.dep-links h3, .dep-subheading { margin: 0; color: #293b58; font-size: 13px; }
+.dep-links ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.dep-links li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 10px; border: 1px solid #e6ecf4; border-radius: 8px; font-size: 12px; }
+.dep-links li.is-critical { border-color: #f3c4c4; background: #fff7f6; }
+.dep-add { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.dep-add label { display: grid; gap: 4px; color: #526783; font-size: 12px; font-weight: 600; }
+.dep-add select, .dep-add input { min-height: 36px; padding: 0 10px; border: 1px solid #d6dfec; border-radius: 8px; background: #fff; font: inherit; font-size: 13px; }
+.dep-path { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; padding: 0; list-style: none; }
+.dep-path li { display: grid; padding: 8px 12px; border: 1px solid #f3c4c4; border-radius: 9px; background: #fff7f6; }
+.dep-path li strong { font-size: 12px; }
+.dep-path li small { color: #70819a; font-size: 11px; }
+
+/* Settings */
+.settings-project-picker { margin-bottom: 10px; }
+.settings-project-picker label { display: grid; gap: 4px; max-width: 360px; color: #526783; font-size: 12px; font-weight: 600; }
+.settings-project-picker select { min-height: 38px; padding: 0 10px; border: 1px solid #d6dfec; border-radius: 8px; background: #fff; font: inherit; font-size: 13px; }
+.settings-links { display: flex; gap: 16px; margin: 8px 0 0; font-size: 13px; }
+.settings-links a { color: #1768dc; text-decoration: none; font-weight: 600; }
+.settings-panel input:disabled, .settings-panel select:disabled, .settings-panel textarea:disabled { background: #f3f6fa; color: #70819a; }
+.switch:disabled { opacity: 0.5; cursor: not-allowed; }

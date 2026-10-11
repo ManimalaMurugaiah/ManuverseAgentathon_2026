@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useNavigate, useSearchParams } from "react-router-dom";
 
+import { useApiData } from "../api/useApiData";
 import { useAuth } from "../context/AuthContext";
-import { sampleBusinesses, sampleRisks } from "../pages/sampleData";
+import type { Lookups, RiskList } from "../types";
 
 const navigation = [
   { label: "Overview", to: "/", icon: "⌂", end: true },
@@ -20,14 +21,16 @@ export function Layout(): JSX.Element {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const requestedBusiness = searchParams.get("business") ?? "";
-  const selectedBusiness = sampleBusinesses.includes(requestedBusiness) ? requestedBusiness : "";
+  const lookups = useApiData<Lookups>("/lookups");
+  const businesses = lookups.data?.businesses ?? [];
+  // Keep a business from the URL selectable even if lookups have not loaded or it has no projects yet.
+  const selectedBusiness = requestedBusiness;
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
-  const notifications = sampleRisks.filter((risk) =>
-    risk.status !== "Resolved" && (!selectedBusiness || risk.business === selectedBusiness),
-  );
+  const risksData = useApiData<RiskList>("/risks", { business: selectedBusiness, active_only: true, limit: 50 });
+  const notifications = risksData.data?.items ?? [];
 
   useEffect(() => {
     if (!notificationsOpen && !userMenuOpen) return undefined;
@@ -114,26 +117,22 @@ export function Layout(): JSX.Element {
         <header className="topbar">
           <div className="topbar-context">
             <label className="topbar-label" htmlFor="business-select">Business</label>
-            {selectedBusiness ? (
-              <div className="project-select project-select-static" aria-label="Selected business" title="Business selection is locked">
-                {selectedBusiness}
-              </div>
-            ) : (
-              <select
-                id="business-select"
-                className="project-select"
-                aria-label="Select business"
-                value=""
-                onChange={(event) => {
-                  const nextParams = new URLSearchParams(searchParams);
-                  nextParams.set("business", event.target.value);
-                  setSearchParams(nextParams, { replace: true });
-                }}
-              >
-                <option value="">Select a business</option>
-                {sampleBusinesses.map((business) => <option key={business} value={business}>{business}</option>)}
-              </select>
-            )}
+            <select
+              id="business-select"
+              className="project-select"
+              aria-label="Select business"
+              value={selectedBusiness}
+              onChange={(event) => {
+                const nextParams = new URLSearchParams(searchParams);
+                if (event.target.value) nextParams.set("business", event.target.value);
+                else nextParams.delete("business");
+                setSearchParams(nextParams, { replace: true });
+              }}
+            >
+              <option value="">All businesses</option>
+              {selectedBusiness && !businesses.includes(selectedBusiness) ? <option value={selectedBusiness}>{selectedBusiness}</option> : null}
+              {businesses.map((business) => <option key={business} value={business}>{business}</option>)}
+            </select>
           </div>
 
           <div className="topbar-account">
@@ -162,16 +161,16 @@ export function Layout(): JSX.Element {
                     type="button"
                     onClick={() => {
                       const nextParams = new URLSearchParams(searchParams);
-                      nextParams.set("business", risk.business);
+                      if (risk.business) nextParams.set("business", risk.business);
                       setNotificationsOpen(false);
-                      navigate({ pathname: "/risks", search: `?${nextParams.toString()}` });
+                      navigate({ pathname: "/risks", search: nextParams.toString() ? `?${nextParams.toString()}` : "" });
                     }}
                   >
                     <span className={`severity-indicator severity-${risk.severity.toLowerCase()}`} aria-hidden="true" />
-                    <span><strong>{risk.title}</strong><small>{risk.business} · {risk.severity}</small></span>
+                    <span><strong>{risk.title}</strong><small>{risk.project_name ?? risk.business ?? ""} · {risk.severity}</small></span>
                   </button>
                 ))}
-                {!notifications.length ? <p className="notification-empty">No active issues for this business.</p> : null}
+                {!notifications.length ? <p className="notification-empty">No active issues{selectedBusiness ? " for this business" : ""}.</p> : null}
                 <button
                   className="notification-view-all"
                   type="button"
@@ -204,6 +203,16 @@ export function Layout(): JSX.Element {
                     <strong>{user?.username}</strong>
                     <small>{user?.role}</small>
                   </div>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      navigate({ pathname: "/settings", search: searchParams.toString() ? `?${searchParams.toString()}` : "" });
+                    }}
+                  >
+                    Settings
+                  </button>
                   <button
                     type="button"
                     role="menuitem"

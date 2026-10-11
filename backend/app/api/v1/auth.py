@@ -65,7 +65,7 @@ def login(payload: LoginRequest, db: Annotated[Session, Depends(get_db)]) -> Tok
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
     user = db.query(User).filter(User.username == payload.username.strip()).first()
-    if not user or not verify_password(payload.password, user.password_hash):
+    if not user or user.is_active is False or not verify_password(payload.password, user.password_hash):
         _register_failed_attempt(username)
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
@@ -101,7 +101,7 @@ def refresh_token(payload: RefreshTokenRequest, db: Annotated[Session, Depends(g
         raise HTTPException(status_code=401, detail=INVALID_REFRESH_TOKEN)
 
     user = db.query(User).filter(User.username == username).first()
-    if not user:
+    if not user or user.is_active is False:
         raise HTTPException(status_code=401, detail=INVALID_REFRESH_TOKEN)
 
     revoke_refresh_token(payload.refresh_token)

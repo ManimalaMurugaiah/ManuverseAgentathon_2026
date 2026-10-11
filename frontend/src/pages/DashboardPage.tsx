@@ -1,129 +1,83 @@
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
-import { sampleActions, sampleBusinesses, sampleRisks } from "./sampleData";
+import { useApiData } from "../api/useApiData";
+import { useBusiness } from "../api/useBusiness";
+import { ErrorState, LoadingState } from "../components/ui";
+import type { OverviewData } from "../types";
+import { formatRelative } from "../utils/format";
 
-const businessMetrics: Record<string, {
-  projects: number;
-  onTrack: number;
-  atRisk: number;
-  delayed: number;
-  milestones: { completed: number; inProgress: number; upcoming: number; delayed: number };
-}> = {
-  [sampleBusinesses[0]]: { projects: 12, onTrack: 5, atRisk: 4, delayed: 3, milestones: { completed: 10, inProgress: 8, upcoming: 4, delayed: 2 } },
-  [sampleBusinesses[1]]: { projects: 9, onTrack: 5, atRisk: 2, delayed: 2, milestones: { completed: 9, inProgress: 6, upcoming: 3, delayed: 2 } },
-  [sampleBusinesses[2]]: { projects: 8, onTrack: 5, atRisk: 2, delayed: 1, milestones: { completed: 8, inProgress: 5, upcoming: 3, delayed: 1 } },
-  [sampleBusinesses[3]]: { projects: 10, onTrack: 6, atRisk: 2, delayed: 2, milestones: { completed: 11, inProgress: 7, upcoming: 4, delayed: 2 } },
-  [sampleBusinesses[4]]: { projects: 7, onTrack: 4, atRisk: 2, delayed: 1, milestones: { completed: 7, inProgress: 5, upcoming: 3, delayed: 1 } },
-};
+const CHART_LEFT = 46;
+const CHART_STEP = 99;
 
-const businessTrends: Record<string, number[]> = {
-  [sampleBusinesses[0]]: [44, 52, 49, 65, 72, 82],
-  [sampleBusinesses[1]]: [38, 46, 54, 57, 68, 75],
-  [sampleBusinesses[2]]: [49, 55, 51, 63, 69, 78],
-  [sampleBusinesses[3]]: [42, 50, 58, 56, 70, 84],
-  [sampleBusinesses[4]]: [35, 43, 48, 61, 65, 73],
-};
-
-const monthLabels = ["May", "Jun", "Jul", "Aug", "Sep", "Oct"];
-
-function ProjectHealthChart({ values }: Readonly<{ values: number[] }>): JSX.Element {
-  const points = values.map((value, index) => ({
-    x: 46 + index * 99,
-    y: 174 - value * 1.35,
-  }));
-  const line = points.map((point) => `${point.x},${point.y}`).join(" ");
-  const area = `46,184 ${line} ${points[points.length - 1].x},184`;
+function ProjectHealthChart({ trend }: Readonly<{ trend: OverviewData["trend"] }>): JSX.Element {
+  const known = trend
+    .map((point, index) => ({ ...point, x: CHART_LEFT + index * CHART_STEP }))
+    .filter((point): point is typeof point & { value: number } => point.value !== null)
+    .map((point) => ({ ...point, y: 174 - point.value * 1.35 }));
+  const line = known.map((point) => `${point.x},${point.y}`).join(" ");
+  const area = known.length > 1 ? `${known[0].x},184 ${line} ${known[known.length - 1].x},184` : "";
 
   return (
-    <svg className="overview-chart" viewBox="0 0 560 220" role="img" aria-label="Project health trend for the last six months">
+    <svg className="overview-chart" viewBox="0 0 560 220" role="img" aria-label="Share of milestones completed by due month, last six months">
       {[40, 80, 120, 160].map((y, index) => (
         <g key={y}>
           <line x1="42" y1={y} x2="548" y2={y} className="overview-chart-grid" />
           <text x="4" y={y + 4} className="overview-chart-axis">{100 - index * 25}</text>
         </g>
       ))}
-      <polygon points={area} className="overview-chart-area" />
-      <polyline points={line} className="overview-chart-line" />
-      {points.map((point, index) => (
-        <g key={monthLabels[index]}>
-          <circle cx={point.x} cy={point.y} r="5" className="overview-chart-point" />
-          <text x={point.x} y="207" textAnchor="middle" className="overview-chart-axis">{monthLabels[index]}</text>
-        </g>
+      {area ? <polygon points={area} className="overview-chart-area" /> : null}
+      {known.length > 1 ? <polyline points={line} className="overview-chart-line" /> : null}
+      {known.map((point) => <circle key={point.label} cx={point.x} cy={point.y} r="5" className="overview-chart-point" />)}
+      {trend.map((point, index) => (
+        <text key={`${point.label}-${index}`} x={CHART_LEFT + index * CHART_STEP} y="207" textAnchor="middle" className="overview-chart-axis">{point.label}</text>
       ))}
+      {!known.length ? <text x="300" y="110" textAnchor="middle" className="overview-chart-axis">No milestones due in this period</text> : null}
     </svg>
   );
 }
 
 export function DashboardPage(): JSX.Element {
-  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const requestedBusiness = searchParams.get("business") ?? "";
-  const business = sampleBusinesses.includes(requestedBusiness) ? requestedBusiness : "";
-  const metrics = business ? businessMetrics[business] : null;
-  const trend = business ? businessTrends[business] : [];
-  const risks = sampleRisks.filter((risk) => risk.business === business && risk.status !== "Resolved");
-  const actions = sampleActions.filter((action) => action.business === business && action.status !== "Completed");
-  const milestoneCounts = metrics?.milestones ?? { completed: 0, inProgress: 0, upcoming: 0, delayed: 0 };
-  const totalMilestones = milestoneCounts.completed + milestoneCounts.inProgress + milestoneCounts.upcoming + milestoneCounts.delayed;
-  const { completed, inProgress, upcoming, delayed } = milestoneCounts;
-  const ringBackground = totalMilestones
-    ? `conic-gradient(#149f69 0 ${(completed / totalMilestones) * 100}%, #3477f6 ${(completed / totalMilestones) * 100}% ${((completed + inProgress) / totalMilestones) * 100}%, #cbd6e8 ${((completed + inProgress) / totalMilestones) * 100}% ${((completed + inProgress + upcoming) / totalMilestones) * 100}%, #e9474c ${((completed + inProgress + upcoming) / totalMilestones) * 100}% 100%)`
-    : "conic-gradient(#e8edf5 0 100%)";
-  const activities = [
-    ...risks.map((risk) => ({
-      id: risk.id,
-      label: risk.title,
-      detail: risk.business,
-      status: risk.severity === "High" ? "alert" : "warn",
-      when: "Today",
-    })),
-    ...actions.map((action) => ({
-      id: action.id,
-      label: action.title,
-      detail: action.business,
-      status: action.status === "Overdue" ? "alert" : "ok",
-      when: action.status === "Overdue" ? "Today" : "Yesterday",
-    })),
-  ].slice(0, 4);
+  const { business, withBusiness } = useBusiness();
+  const overview = useApiData<OverviewData>("/dashboard/overview", { business });
+  const go = (path: string) => navigate(withBusiness(path));
 
-  const navigateWithBusiness = (path: string) => navigate({
-    pathname: path,
-    search: searchParams.toString() ? `?${searchParams.toString()}` : "",
-  });
-
-  if (!business || !metrics) {
-    return (
-      <section className="overview-page overview-onboarding">
-        <header className="overview-heading">
-          <div>
-            <h1>Project Overview</h1>
-            <p>Executive dashboard with real-time project health</p>
-          </div>
-        </header>
-        <section className="overview-empty-state">
-          <span className="overview-empty-icon" aria-hidden="true">▣</span>
-          <h2>Select a business to get started</h2>
-          <p>Choose one of the five sample businesses from the dropdown above to view its projects, milestones, risks, and activity.</p>
-        </section>
-      </section>
-    );
+  if (overview.loading && !overview.data) {
+    return <section className="overview-page"><LoadingState label="Loading overview…" /></section>;
   }
+  if (!overview.data) {
+    return <section className="overview-page"><ErrorState message={overview.error || "Could not load the overview."} onRetry={overview.reload} /></section>;
+  }
+
+  const { summary, milestones, trend, top_risks: risks, activity, priority_actions: actions } = overview.data;
+  const { completed, in_progress: inProgress, upcoming, delayed } = milestones;
+  const totalMilestones = completed + inProgress + upcoming + delayed;
+  const share = (value: number) => (totalMilestones ? (value / totalMilestones) * 100 : 0);
+  const stop = (from: number, to: number) => `${from}% ${to}%`;
+  const a = share(completed);
+  const b = a + share(inProgress);
+  const c = b + share(upcoming);
+  const ringBackground = totalMilestones
+    ? `conic-gradient(#149f69 ${stop(0, a)}, #3477f6 ${stop(a, b)}, #cbd6e8 ${stop(b, c)}, #e9474c ${stop(c, 100)})`
+    : "conic-gradient(#e8edf5 0 100%)";
+  const linkFor = { risks: "/risks", actions: "/actions", milestones: "/milestones" } as const;
 
   return (
     <section className="overview-page">
       <header className="overview-heading">
         <div>
           <h1>Project Overview</h1>
-          <p>Executive dashboard with real-time project health</p>
+          <p>Executive dashboard with real-time project health{business ? ` · ${business}` : ""}</p>
         </div>
       </header>
+      {overview.error ? <ErrorState message={overview.error} onRetry={overview.reload} /> : null}
 
       <div className="overview-metrics">
         {[
-          { label: "Total projects", value: metrics.projects, tone: "blue", icon: "☰" },
-          { label: "On track", value: metrics.onTrack, tone: "green", icon: "✓" },
-          { label: "At risk", value: metrics.atRisk, tone: "amber", icon: "⚠" },
-          { label: "Delayed", value: metrics.delayed, tone: "red", icon: "◷" },
+          { label: "Total projects", value: summary.total, tone: "blue", icon: "☰" },
+          { label: "On track", value: summary.on_track, tone: "green", icon: "✓" },
+          { label: "At risk", value: summary.at_risk, tone: "amber", icon: "⚠" },
+          { label: "Delayed", value: summary.delayed, tone: "red", icon: "◷" },
         ].map((metric) => (
           <article className="overview-metric-card" key={metric.label}>
             <span className={`overview-metric-icon overview-tone-${metric.tone}`} aria-hidden="true">{metric.icon}</span>
@@ -135,10 +89,10 @@ export function DashboardPage(): JSX.Element {
       <div className="overview-charts-grid">
         <article className="overview-card overview-trend-card">
           <div className="overview-card-heading">
-            <h2>Project health trend</h2>
+            <h2>Milestone delivery trend</h2>
             <span className="overview-period">Last 6 months</span>
           </div>
-          <ProjectHealthChart values={trend} />
+          <ProjectHealthChart trend={trend} />
         </article>
 
         <article className="overview-card overview-milestone-card">
@@ -163,16 +117,16 @@ export function DashboardPage(): JSX.Element {
         <article className="overview-card overview-risk-card">
           <div className="overview-card-heading">
             <h2>Top risks</h2>
-            <button type="button" className="overview-link" onClick={() => navigateWithBusiness("/risks")}>View all</button>
+            <button type="button" className="overview-link" onClick={() => go("/risks")}>View all</button>
           </div>
           <div className="overview-risk-list">
-            {risks.slice(0, 3).map((risk) => (
-              <button type="button" className="overview-risk-item" key={risk.id} onClick={() => navigateWithBusiness("/risks")}>
-                <span><strong>{risk.title}</strong><small>{risk.line}</small></span>
+            {risks.map((risk) => (
+              <button type="button" className="overview-risk-item" key={risk.id} onClick={() => go("/risks")}>
+                <span><strong>{risk.title}</strong><small>{risk.project_name ?? "—"}</small></span>
                 <span className={`overview-risk-pill overview-risk-${risk.severity.toLowerCase()}`}>{risk.severity}</span>
               </button>
             ))}
-            {!risks.length ? <p className="overview-muted">No active risks for this business.</p> : null}
+            {!risks.length ? <p className="overview-muted">No active risks.</p> : null}
           </div>
         </article>
       </div>
@@ -181,35 +135,30 @@ export function DashboardPage(): JSX.Element {
         <article className="overview-card overview-activity-card">
           <div className="overview-card-heading"><h2>Recent activity</h2></div>
           <div className="overview-activity-list">
-            {activities.map((activity) => (
-              <button
-                type="button"
-                className="overview-activity-item"
-                key={activity.id}
-                onClick={() => navigateWithBusiness(activity.status === "alert" || activity.status === "warn" ? "/risks" : "/actions")}
-              >
-                <i className={`overview-activity-dot overview-activity-${activity.status}`} />
-                <span>{activity.label}</span>
-                <small>{activity.when}</small>
+            {activity.slice(0, 4).map((item) => (
+              <button type="button" className="overview-activity-item" key={item.id} onClick={() => go(linkFor[item.link])}>
+                <i className={`overview-activity-dot overview-activity-${item.tone}`} />
+                <span>{item.label}</span>
+                <small>{formatRelative(item.when)}</small>
               </button>
             ))}
-            {!activities.length ? <p className="overview-muted">No recent business activity.</p> : null}
+            {!activity.length ? <p className="overview-muted">No recent activity.</p> : null}
           </div>
         </article>
 
         <article className="overview-card overview-priority-card">
           <div className="overview-card-heading">
             <h2>Priority actions</h2>
-            <button type="button" className="overview-link" onClick={() => navigateWithBusiness("/actions")}>View all</button>
+            <button type="button" className="overview-link" onClick={() => go("/actions")}>View all</button>
           </div>
           <div className="overview-priority-list">
-            {actions.slice(0, 3).map((action) => (
-              <button type="button" className="overview-priority-item" key={action.id} onClick={() => navigateWithBusiness("/actions")}>
-                <span><strong>{action.title}</strong><small>{action.owner} · Due {action.dueDate}</small></span>
-                <span className={`overview-risk-pill overview-risk-${action.priority.toLowerCase()}`}>{action.status === "Overdue" ? "Overdue" : action.priority}</span>
+            {actions.map((action) => (
+              <button type="button" className="overview-priority-item" key={action.id} onClick={() => go("/actions")}>
+                <span><strong>{action.title}</strong><small>{action.owner ?? "Unassigned"} · Due {action.due_date ?? "—"}</small></span>
+                <span className={`overview-risk-pill overview-risk-${action.priority.toLowerCase()}`}>{action.is_overdue ? "Overdue" : action.priority}</span>
               </button>
             ))}
-            {!actions.length ? <p className="overview-muted">No open actions for this business.</p> : null}
+            {!actions.length ? <p className="overview-muted">No open actions.</p> : null}
           </div>
         </article>
       </div>
