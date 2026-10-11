@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { useAuth } from "../context/AuthContext";
-import { sampleActions, type SampleAction } from "./sampleData";
+import { sampleActions, sampleBusinesses, type SampleAction } from "./sampleData";
 
 type ActionView = "All Actions" | "My Actions" | "Overdue";
 
@@ -12,6 +12,7 @@ export function ActionsPage(): JSX.Element {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const selectedProject = searchParams.get("project_code") ?? "";
+  const selectedBusiness = searchParams.get("business") ?? "";
   const [actions, setActions] = useState(() => sampleActions.map((action, index) =>
     index === 0 && user?.username ? { ...action, owner: user.username } : action,
   ));
@@ -26,15 +27,17 @@ export function ActionsPage(): JSX.Element {
 
   const filteredActions = useMemo(() => actions.filter((action) => {
     const matchesProject = !selectedProject || action.project === selectedProject;
+    const matchesBusiness = !selectedBusiness || action.business === selectedBusiness;
     const matchesView = view === "All Actions"
       || (view === "Overdue" ? action.status === "Overdue" : action.owner.toLowerCase() === user?.username.toLowerCase());
     const search = query.trim().toLowerCase();
     const matchesQuery = !search || `${action.id} ${action.title} ${action.milestone} ${action.owner}`.toLowerCase().includes(search);
-    return matchesProject && matchesView && matchesQuery;
-  }), [actions, query, selectedProject, user?.username, view]);
+    return matchesProject && matchesBusiness && matchesView && matchesQuery;
+  }), [actions, query, selectedBusiness, selectedProject, user?.username, view]);
 
-  const completeCount = actions.filter((action) => action.status === "Completed").length;
-  const overdueCount = actions.filter((action) => action.status === "Overdue").length;
+  const businessActions = actions.filter((action) => !selectedBusiness || action.business === selectedBusiness);
+  const completeCount = businessActions.filter((action) => action.status === "Completed").length;
+  const overdueCount = businessActions.filter((action) => action.status === "Overdue").length;
   const setActionStatus = (action: SampleAction) => {
     const nextStatus: SampleAction["status"] = action.status === "Completed" ? "Open" : "Completed";
     setActions((current) => current.map((item) => item.id === action.id ? { ...item, status: nextStatus } : item));
@@ -45,6 +48,7 @@ export function ActionsPage(): JSX.Element {
     const action: SampleAction = {
       id: `A-${String(Date.now()).slice(-3)}`,
       title: newTitle.trim(),
+      business: selectedBusiness || sampleBusinesses[0],
       milestone: "General",
       owner: newOwner.trim(),
       priority: newPriority,
@@ -72,9 +76,9 @@ export function ActionsPage(): JSX.Element {
       <div className="demo-data-note"><span aria-hidden="true">ⓘ</span> Example actions are stored in this browser session only.</div>
 
       <div className="feature-metrics action-metrics">
-        <article className="feature-metric"><span>Total actions</span><strong>{actions.length}</strong><small>All demo projects</small></article>
-        <article className="feature-metric metric-blue"><span>Open</span><strong>{actions.filter((action) => action.status === "Open").length}</strong><small>Awaiting a start</small></article>
-        <article className="feature-metric metric-sky"><span>In progress</span><strong>{actions.filter((action) => action.status === "In Progress").length}</strong><small>Being worked on</small></article>
+        <article className="feature-metric"><span>Total actions</span><strong>{businessActions.length}</strong><small>{selectedBusiness || "All demo businesses"}</small></article>
+        <article className="feature-metric metric-blue"><span>Open</span><strong>{businessActions.filter((action) => action.status === "Open").length}</strong><small>Awaiting a start</small></article>
+        <article className="feature-metric metric-sky"><span>In progress</span><strong>{businessActions.filter((action) => action.status === "In Progress").length}</strong><small>Being worked on</small></article>
         <article className="feature-metric metric-green"><span>Completed</span><strong>{completeCount}</strong><small>Closed actions</small></article>
         <article className="feature-metric metric-red"><span>Overdue</span><strong>{overdueCount}</strong><small>Past due date</small></article>
       </div>
@@ -107,7 +111,7 @@ export function ActionsPage(): JSX.Element {
             </tbody>
           </table>
         </div>
-        <div className="table-footer">Showing {filteredActions.length} of {actions.length} demo actions</div>
+        <div className="table-footer">Showing {filteredActions.length} of {businessActions.length} demo actions</div>
       </section>
 
       {showCreate ? (

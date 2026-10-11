@@ -16,9 +16,9 @@ afterEach(() => {
 
 describe("operations pages", () => {
   it("filters businesses and shows a selected risk's line and timestamp", () => {
-    render(<RisksIssuesPage />);
+    window.history.replaceState({}, "", "/?business=Northstar%20Steel%20Works");
+    render(<BrowserRouter><RisksIssuesPage /></BrowserRouter>);
 
-    fireEvent.change(screen.getByLabelText("Manufacturing business"), { target: { value: "Northstar Steel Works" } });
     fireEvent.click(screen.getByRole("button", { name: /Rolling mill vibration trending upward/ }));
 
     expect(screen.getByText("Rolling Mill Line 1")).toBeTruthy();

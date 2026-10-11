@@ -1,401 +1,218 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 
-import api from "../api/client";
-import { getApiErrorMessage } from "../api/errors";
-import { useAuth } from "../context/AuthContext";
-import type { DashboardSummary, WorkflowRun } from "../types";
+import { sampleActions, sampleBusinesses, sampleRisks } from "./sampleData";
 
-const workflowStages = [
-  "Design Freeze",
-  "Drawing Approval",
-  "PO Release",
-  "Vendor Manufacturing",
-  "FAT",
-  "Shipment",
-  "Site Readiness",
-  "Equipment Delivery",
-  "Installation",
-  "Mechanical Completion",
-  "SAT",
-  "Commissioning",
-  "Production Handover",
-];
-
-const emptySummary: DashboardSummary = {
-  total_runs: 0,
-  running: 0,
-  blocked: 0,
-  completed: 0,
+const businessMetrics: Record<string, {
+  projects: number;
+  onTrack: number;
+  atRisk: number;
+  delayed: number;
+  milestones: { completed: number; inProgress: number; upcoming: number; delayed: number };
+}> = {
+  [sampleBusinesses[0]]: { projects: 12, onTrack: 5, atRisk: 4, delayed: 3, milestones: { completed: 10, inProgress: 8, upcoming: 4, delayed: 2 } },
+  [sampleBusinesses[1]]: { projects: 9, onTrack: 5, atRisk: 2, delayed: 2, milestones: { completed: 9, inProgress: 6, upcoming: 3, delayed: 2 } },
+  [sampleBusinesses[2]]: { projects: 8, onTrack: 5, atRisk: 2, delayed: 1, milestones: { completed: 8, inProgress: 5, upcoming: 3, delayed: 1 } },
+  [sampleBusinesses[3]]: { projects: 10, onTrack: 6, atRisk: 2, delayed: 2, milestones: { completed: 11, inProgress: 7, upcoming: 4, delayed: 2 } },
+  [sampleBusinesses[4]]: { projects: 7, onTrack: 4, atRisk: 2, delayed: 1, milestones: { completed: 7, inProgress: 5, upcoming: 3, delayed: 1 } },
 };
 
-interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-}
+const businessTrends: Record<string, number[]> = {
+  [sampleBusinesses[0]]: [44, 52, 49, 65, 72, 82],
+  [sampleBusinesses[1]]: [38, 46, 54, 57, 68, 75],
+  [sampleBusinesses[2]]: [49, 55, 51, 63, 69, 78],
+  [sampleBusinesses[3]]: [42, 50, 58, 56, 70, 84],
+  [sampleBusinesses[4]]: [35, 43, 48, 61, 65, 73],
+};
 
-function formatDate(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? "Date unavailable"
-    : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
-}
+const monthLabels = ["May", "Jun", "Jul", "Aug", "Sep", "Oct"];
 
-function stageTone(stage: string, activeStages: Set<string>): string {
-  return activeStages.has(stage) ? "success" : "idle";
+function ProjectHealthChart({ values }: Readonly<{ values: number[] }>): JSX.Element {
+  const points = values.map((value, index) => ({
+    x: 46 + index * 99,
+    y: 174 - value * 1.35,
+  }));
+  const line = points.map((point) => `${point.x},${point.y}`).join(" ");
+  const area = `46,184 ${line} ${points[points.length - 1].x},184`;
+
+  return (
+    <svg className="overview-chart" viewBox="0 0 560 220" role="img" aria-label="Project health trend for the last six months">
+      {[40, 80, 120, 160].map((y, index) => (
+        <g key={y}>
+          <line x1="42" y1={y} x2="548" y2={y} className="overview-chart-grid" />
+          <text x="4" y={y + 4} className="overview-chart-axis">{100 - index * 25}</text>
+        </g>
+      ))}
+      <polygon points={area} className="overview-chart-area" />
+      <polyline points={line} className="overview-chart-line" />
+      {points.map((point, index) => (
+        <g key={monthLabels[index]}>
+          <circle cx={point.x} cy={point.y} r="5" className="overview-chart-point" />
+          <text x={point.x} y="207" textAnchor="middle" className="overview-chart-axis">{monthLabels[index]}</text>
+        </g>
+      ))}
+    </svg>
+  );
 }
 
 export function DashboardPage(): JSX.Element {
-  const { user } = useAuth();
   const [searchParams] = useSearchParams();
-  const projectCode = searchParams.get("project_code") ?? "";
-  const [summary, setSummary] = useState<DashboardSummary>(emptySummary);
-  const [runs, setRuns] = useState<WorkflowRun[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [question, setQuestion] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-
-  useEffect(() => {
-    let active = true;
-    const params = projectCode ? { project_code: projectCode } : undefined;
-
-    const loadDashboard = async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const [summaryResponse, runsResponse] = await Promise.all([
-          api.get<DashboardSummary>("/dashboard/summary", { params }),
-          api.get<WorkflowRun[]>("/workflow/runs", { params: { ...params, limit: 50 } }),
-        ]);
-        if (active) {
-          setSummary(summaryResponse.data);
-          setRuns(runsResponse.data);
-        }
-      } catch (loadError) {
-        if (active) setError(getApiErrorMessage(loadError, "Could not load dashboard data."));
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-
-    void loadDashboard();
-    return () => {
-      active = false;
-    };
-  }, [projectCode, refreshKey]);
-
-  const activeStages = useMemo(
-    () => new Set(runs.filter((run) => run.status === "running").map((run) => run.current_stage)),
-    [runs],
-  );
-  const otherRuns = Math.max(summary.total_runs - summary.running - summary.blocked - summary.completed, 0);
-  const health = summary.blocked > 0 ? "AT RISK" : summary.total_runs > 0 ? "ON TRACK" : "NO DATA";
-  const ringBackground = summary.total_runs > 0
-    ? `conic-gradient(#18a66b 0 ${(summary.running / summary.total_runs) * 100}%, #ea4a4d ${(summary.running / summary.total_runs) * 100}% ${((summary.running + summary.blocked) / summary.total_runs) * 100}%, #3978f6 ${((summary.running + summary.blocked) / summary.total_runs) * 100}% ${((summary.running + summary.blocked + summary.completed) / summary.total_runs) * 100}%, #a9b6c8 ${((summary.running + summary.blocked + summary.completed) / summary.total_runs) * 100}% 100%)`
+  const navigate = useNavigate();
+  const requestedBusiness = searchParams.get("business") ?? "";
+  const business = sampleBusinesses.includes(requestedBusiness) ? requestedBusiness : "";
+  const metrics = business ? businessMetrics[business] : null;
+  const trend = business ? businessTrends[business] : [];
+  const risks = sampleRisks.filter((risk) => risk.business === business && risk.status !== "Resolved");
+  const actions = sampleActions.filter((action) => action.business === business && action.status !== "Completed");
+  const milestoneCounts = metrics?.milestones ?? { completed: 0, inProgress: 0, upcoming: 0, delayed: 0 };
+  const totalMilestones = milestoneCounts.completed + milestoneCounts.inProgress + milestoneCounts.upcoming + milestoneCounts.delayed;
+  const { completed, inProgress, upcoming, delayed } = milestoneCounts;
+  const ringBackground = totalMilestones
+    ? `conic-gradient(#149f69 0 ${(completed / totalMilestones) * 100}%, #3477f6 ${(completed / totalMilestones) * 100}% ${((completed + inProgress) / totalMilestones) * 100}%, #cbd6e8 ${((completed + inProgress) / totalMilestones) * 100}% ${((completed + inProgress + upcoming) / totalMilestones) * 100}%, #e9474c ${((completed + inProgress + upcoming) / totalMilestones) * 100}% 100%)`
     : "conic-gradient(#e8edf5 0 100%)";
-  const insightRuns = runs.filter((run) => run.status === "blocked" || run.status === "running").slice(0, 3);
+  const activities = [
+    ...risks.map((risk) => ({
+      id: risk.id,
+      label: risk.title,
+      detail: risk.business,
+      status: risk.severity === "High" ? "alert" : "warn",
+      when: "Today",
+    })),
+    ...actions.map((action) => ({
+      id: action.id,
+      label: action.title,
+      detail: action.business,
+      status: action.status === "Overdue" ? "alert" : "ok",
+      when: action.status === "Overdue" ? "Today" : "Yesterday",
+    })),
+  ].slice(0, 4);
 
-  const sendQuestion = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const message = question.trim();
-    if (!message || chatLoading) return;
+  const navigateWithBusiness = (path: string) => navigate({
+    pathname: path,
+    search: searchParams.toString() ? `?${searchParams.toString()}` : "",
+  });
 
-    setChatMessages((current) => [...current, { role: "user", content: message }]);
-    setQuestion("");
-    setChatLoading(true);
-    try {
-      const { data } = await api.post<{ reply: string }>("/assistant/chat", {
-        message,
-        ...(projectCode ? { project_code: projectCode } : {}),
-      });
-      setChatMessages((current) => [...current, { role: "assistant", content: data.reply }]);
-    } catch (chatError) {
-      setChatMessages((current) => [
-        ...current,
-        { role: "assistant", content: getApiErrorMessage(chatError, "The assistant could not answer right now.") },
-      ]);
-    } finally {
-      setChatLoading(false);
-    }
-  };
+  if (!business || !metrics) {
+    return (
+      <section className="overview-page overview-onboarding">
+        <header className="overview-heading">
+          <div>
+            <h1>Project Overview</h1>
+            <p>Executive dashboard with real-time project health</p>
+          </div>
+        </header>
+        <section className="overview-empty-state">
+          <span className="overview-empty-icon" aria-hidden="true">▣</span>
+          <h2>Select a business to get started</h2>
+          <p>Choose one of the five sample businesses from the dropdown above to view its projects, milestones, risks, and activity.</p>
+        </section>
+      </section>
+    );
+  }
 
   return (
-    <section className="dashboard-shell">
-      <div className="main-panel">
-        <div className="hero-row">
-          <div className="hero-copy">
-            <h1>Hello {user?.username ?? "there"} <span aria-hidden="true">👋</span></h1>
-            <p>
-              {projectCode
-                ? `Your AI Project Orchestrator is monitoring ${projectCode}.`
-                : "Your AI Project Orchestrator is monitoring all projects."}
-            </p>
-            <span className="hero-caption">
-              {loading ? "Refreshing live workflow data…" : "Live status from workflow runs stored in your workspace."}
-            </span>
-          </div>
-
-          <div className="bot-bubble-wrap">
-            <div className="bot-bubble">
-              {summary.blocked > 0
-                ? `${summary.blocked} workflow${summary.blocked === 1 ? "" : "s"} blocked; review the latest activity.`
-                : summary.total_runs > 0
-                  ? `${summary.running} workflow${summary.running === 1 ? "" : "s"} currently in progress.`
-                  : "Start a workflow to see live project status here."}
-            </div>
-            <div className="bot-robot" aria-hidden="true">
-              <span className="bot-head" />
-              <span className="bot-eye left" />
-              <span className="bot-eye right" />
-              <span className="bot-body" />
-              <span className="bot-arm left" />
-              <span className="bot-arm right" />
-            </div>
-          </div>
+    <section className="overview-page">
+      <header className="overview-heading">
+        <div>
+          <h1>Project Overview</h1>
+          <p>Executive dashboard with real-time project health</p>
         </div>
+      </header>
 
-        {error ? (
-          <div className="dashboard-error" role="alert">
-            <span>{error}</span>
-            <button type="button" className="text-button" onClick={() => setRefreshKey((value) => value + 1)}>
-              Retry
-            </button>
-          </div>
-        ) : null}
-
-        <div className="summary-grid">
-          {[
-            { label: "Total Runs", value: summary.total_runs, tone: "blue", icon: "▣" },
-            { label: "Running", value: summary.running, tone: "green", icon: "✓" },
-            { label: "Blocked", value: summary.blocked, tone: "red", icon: "!" },
-            { label: "Completed", value: summary.completed, tone: "amber", icon: "◷" },
-            { label: "Project Health", value: health, tone: "purple", icon: "◉" },
-          ].map((card) => (
-            <article key={card.label} className={`summary-card summary-card--${card.tone}`}>
-              <span className={`summary-icon icon-${card.tone}`} aria-hidden="true">{card.icon}</span>
-              <div className="summary-copy">
-                <span className="summary-label">{card.label}</span>
-                <strong>{loading ? "…" : card.value}</strong>
-              </div>
-            </article>
-          ))}
-        </div>
-
-        <div className="project-grid">
-          <article className="white-card timeline-card">
-            <div className="card-head">
-              <div className="card-title-wrap">
-                <span className="card-icon blue">▣</span>
-                <h2>Workflow Stage Progress</h2>
-              </div>
-              <span className="count-pill">{summary.running} active</span>
-            </div>
-            <div className="timeline-scroll">
-              <div className="timeline-row">
-                {workflowStages.map((stage, index) => {
-                  const count = runs.filter((run) => run.status === "running" && run.current_stage === stage).length;
-                  const tone = stageTone(stage, activeStages);
-                  return (
-                    <div key={stage} className="timeline-step">
-                      <div className={`step-dot dot-${tone}`}>{count || index + 1}</div>
-                      <div className="step-name">{stage}</div>
-                      <div className="step-date">{count ? `${count} active` : "Workflow stage"}</div>
-                      {index < workflowStages.length - 1 ? <span className="connector" aria-hidden="true" /> : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+      <div className="overview-metrics">
+        {[
+          { label: "Total projects", value: metrics.projects, tone: "blue", icon: "☰" },
+          { label: "On track", value: metrics.onTrack, tone: "green", icon: "✓" },
+          { label: "At risk", value: metrics.atRisk, tone: "amber", icon: "⚠" },
+          { label: "Delayed", value: metrics.delayed, tone: "red", icon: "◷" },
+        ].map((metric) => (
+          <article className="overview-metric-card" key={metric.label}>
+            <span className={`overview-metric-icon overview-tone-${metric.tone}`} aria-hidden="true">{metric.icon}</span>
+            <span className="overview-metric-copy"><small>{metric.label}</small><strong>{metric.value}</strong></span>
           </article>
-
-          <article className="white-card status-card">
-            <div className="card-head">
-              <div className="card-title-wrap">
-                <span className="card-icon blue">◉</span>
-                <h2>Run Status</h2>
-              </div>
-            </div>
-            <div className="donut-layout">
-              <div className="donut-chart" style={{ background: ringBackground }} aria-label="Workflow run status chart">
-                <div className="donut-center">
-                  <strong>{loading ? "…" : summary.total_runs}</strong>
-                  <span>Workflow runs</span>
-                </div>
-              </div>
-              <div className="status-legend">
-                {[
-                  { label: "Running", value: summary.running, tone: "green" },
-                  { label: "Blocked", value: summary.blocked, tone: "red" },
-                  { label: "Completed", value: summary.completed, tone: "amber" },
-                  ...(otherRuns > 0 ? [{ label: "Other", value: otherRuns, tone: "gray" }] : []),
-                ].map((item) => (
-                  <div className="legend-line" key={item.label}>
-                    <span className={`legend-mark ${item.tone}`} />
-                    <span className="legend-text">{item.label}</span>
-                    <strong>{loading ? "…" : item.value}</strong>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </article>
-        </div>
-
-        <div className="insights-grid">
-          {insightRuns.length > 0 ? insightRuns.map((run) => {
-            const blocked = run.status === "blocked";
-            return (
-              <article
-                key={run.id}
-                className={`insight-card insight-card--${blocked ? "critical" : "action"}`}
-              >
-                <div className="insight-badge">{blocked ? "Blocked workflow" : "Workflow in progress"}</div>
-                <div className="insight-title">{run.project_code} · Run #{run.id}</div>
-                <div className="insight-body">{run.current_stage}</div>
-                <div className="insight-detail">
-                  {blocked ? "This workflow is blocked and needs an approval decision." : "This workflow is awaiting its next approval."}
-                </div>
-              </article>
-            );
-          }) : (
-            <article className="insight-card insight-card--action">
-              <div className="insight-badge">No issues reported</div>
-              <div className="insight-title">{summary.total_runs ? "No active or blocked workflows" : "No workflow runs yet"}</div>
-              <div className="insight-body">
-                {summary.total_runs ? "There are no running or blocked workflows in this project filter." : "Create a workflow run to start tracking project progress."}
-              </div>
-            </article>
-          )}
-        </div>
-
-        <div className="bottom-grid">
-          <article className="white-card activity-card">
-            <div className="card-head">
-              <div className="card-title-wrap">
-                <span className="card-icon purple">⏱</span>
-                <h2>Recent Workflow Activity</h2>
-              </div>
-              <button type="button" className="text-link" onClick={() => setRefreshKey((value) => value + 1)}>
-                Refresh
-              </button>
-            </div>
-            {runs.length ? (
-              <ul className="activity-list">
-                {runs.slice(0, 5).map((run) => (
-                  <li key={run.id} className="activity-item">
-                    <span className={`activity-bullet bullet-${run.status === "blocked" ? "alert" : run.status === "completed" ? "ok" : "warn"}`} aria-hidden="true" />
-                    <div className="activity-text">
-                      <span>{run.project_code} · {run.status} at {run.current_stage}</span>
-                      <small>{formatDate(run.updated_at)}</small>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="muted">{loading ? "Loading workflow activity…" : "No workflow activity to show yet."}</p>
-            )}
-          </article>
-
-          <article className="white-card health-card">
-            <div className="card-head">
-              <div className="card-title-wrap">
-                <span className="card-icon blue">◔</span>
-                <h2>Workflow Summary</h2>
-              </div>
-            </div>
-            <div className="distribution-list">
-              {[
-                { label: "Running", value: summary.running, tone: "green" },
-                { label: "Blocked", value: summary.blocked, tone: "red" },
-                { label: "Completed", value: summary.completed, tone: "blue" },
-              ].map((item) => (
-                <div className="distribution-row" key={item.label}>
-                  <div className="distribution-label"><span className={`legend-mark ${item.tone}`} />{item.label}<strong>{item.value}</strong></div>
-                  <div className="distribution-track">
-                    <span
-                      className={`distribution-fill ${item.tone}`}
-                      style={{ width: `${summary.total_runs ? (item.value / summary.total_runs) * 100 : 0}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="health-note">
-              {loading ? "Refreshing workflow counts…" : `${summary.total_runs} total runs${projectCode ? ` for ${projectCode}` : " across all projects"}.`}
-            </div>
-          </article>
-        </div>
+        ))}
       </div>
 
-      <aside className="agent-panel">
-        <div className="agent-header">
-          <div className="agent-brand">
-            <span className="mini-avatar">AI</span>
-            <span>AI Agent</span>
+      <div className="overview-charts-grid">
+        <article className="overview-card overview-trend-card">
+          <div className="overview-card-heading">
+            <h2>Project health trend</h2>
+            <span className="overview-period">Last 6 months</span>
           </div>
-          <div className="presence-wrap">
-            <span className="presence-dot" aria-hidden="true" />
-            <span className="presence-text">Online</span>
-          </div>
-        </div>
+          <ProjectHealthChart values={trend} />
+        </article>
 
-        <div className="agent-body">
-          <div className="agent-message">
-            <strong>Hi {user?.username ?? "there"}!</strong>
-            <span>
-              {loading
-                ? "Loading live workflow information."
-                : `${summary.total_runs} total runs: ${summary.running} running, ${summary.blocked} blocked, ${summary.completed} completed.`}
-            </span>
-          </div>
-          <div className="agent-insight-list">
-            <div className="panel-subtitle">Latest workflow runs</div>
-            {runs.slice(0, 3).map((run) => (
-              <div className="agent-list-item" key={run.id}>
-                <span className="agent-index">{run.id}</span>
-                {run.project_code}: {run.status} at {run.current_stage}
-              </div>
-            ))}
-            {!runs.length ? <div className="agent-list-item">No workflow runs are available for this project.</div> : null}
-          </div>
-          <div className="panel-actions">
-            <div className="panel-subtitle">Project data</div>
-            <ul>
-              <li>Answers use current workflow run data.</li>
-              <li>AI provider settings are managed by the backend.</li>
-            </ul>
-          </div>
-        </div>
-
-        <div className="chat-history" aria-live="polite">
-          {chatMessages.map((message, index) => (
-            <div key={`${message.role}-${index}`} className={`chat-message chat-message--${message.role}`}>
-              {message.content}
+        <article className="overview-card overview-milestone-card">
+          <div className="overview-card-heading"><h2>Milestone status</h2></div>
+          <div className="overview-milestone-content">
+            <div className="overview-donut" style={{ background: ringBackground }} aria-label={`${totalMilestones} milestones`}>
+              <div><strong>{totalMilestones}</strong><small>Milestones</small></div>
             </div>
-          ))}
-          {chatLoading ? <div className="chat-message chat-message--assistant">Thinking…</div> : null}
-        </div>
+            <div className="overview-legend">
+              {[
+                { label: "Completed", value: completed, tone: "green" },
+                { label: "In progress", value: inProgress, tone: "blue" },
+                { label: "Upcoming", value: upcoming, tone: "gray" },
+                { label: "Delayed", value: delayed, tone: "red" },
+              ].map((item) => (
+                <div key={item.label}><i className={`overview-legend-dot overview-tone-${item.tone}`} /><span>{item.label}</span><strong>{item.value}</strong></div>
+              ))}
+            </div>
+          </div>
+        </article>
 
-        <form className="chat-input-row" onSubmit={sendQuestion}>
-          <input
-            type="text"
-            aria-label="Ask the AI assistant"
-            placeholder="Ask about your workflow runs..."
-            value={question}
-            onChange={(event) => setQuestion(event.target.value)}
-            maxLength={2000}
-            disabled={chatLoading}
-          />
-          <button type="submit" aria-label="Send" disabled={chatLoading || !question.trim()}>➤</button>
-        </form>
-        <div className="agent-quick-actions">
-          <button type="button" onClick={() => setQuestion("Which workflow runs are blocked?")}>Analyze risks</button>
-          <button type="button" onClick={() => setQuestion("Summarize current workflow stages.")}>Show stages</button>
-          <button type="button" onClick={() => setQuestion("How do I advance a workflow run?")}>Next steps</button>
-        </div>
-      </aside>
+        <article className="overview-card overview-risk-card">
+          <div className="overview-card-heading">
+            <h2>Top risks</h2>
+            <button type="button" className="overview-link" onClick={() => navigateWithBusiness("/risks")}>View all</button>
+          </div>
+          <div className="overview-risk-list">
+            {risks.slice(0, 3).map((risk) => (
+              <button type="button" className="overview-risk-item" key={risk.id} onClick={() => navigateWithBusiness("/risks")}>
+                <span><strong>{risk.title}</strong><small>{risk.line}</small></span>
+                <span className={`overview-risk-pill overview-risk-${risk.severity.toLowerCase()}`}>{risk.severity}</span>
+              </button>
+            ))}
+            {!risks.length ? <p className="overview-muted">No active risks for this business.</p> : null}
+          </div>
+        </article>
+      </div>
+
+      <div className="overview-bottom-grid">
+        <article className="overview-card overview-activity-card">
+          <div className="overview-card-heading"><h2>Recent activity</h2></div>
+          <div className="overview-activity-list">
+            {activities.map((activity) => (
+              <button
+                type="button"
+                className="overview-activity-item"
+                key={activity.id}
+                onClick={() => navigateWithBusiness(activity.status === "alert" || activity.status === "warn" ? "/risks" : "/actions")}
+              >
+                <i className={`overview-activity-dot overview-activity-${activity.status}`} />
+                <span>{activity.label}</span>
+                <small>{activity.when}</small>
+              </button>
+            ))}
+            {!activities.length ? <p className="overview-muted">No recent business activity.</p> : null}
+          </div>
+        </article>
+
+        <article className="overview-card overview-priority-card">
+          <div className="overview-card-heading">
+            <h2>Priority actions</h2>
+            <button type="button" className="overview-link" onClick={() => navigateWithBusiness("/actions")}>View all</button>
+          </div>
+          <div className="overview-priority-list">
+            {actions.slice(0, 3).map((action) => (
+              <button type="button" className="overview-priority-item" key={action.id} onClick={() => navigateWithBusiness("/actions")}>
+                <span><strong>{action.title}</strong><small>{action.owner} · Due {action.dueDate}</small></span>
+                <span className={`overview-risk-pill overview-risk-${action.priority.toLowerCase()}`}>{action.status === "Overdue" ? "Overdue" : action.priority}</span>
+              </button>
+            ))}
+            {!actions.length ? <p className="overview-muted">No open actions for this business.</p> : null}
+          </div>
+        </article>
+      </div>
     </section>
   );
 }

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { sampleBusinesses, sampleRisks, type SampleRisk } from "./sampleData";
 
@@ -10,11 +11,16 @@ const formatTimestamp = (value: string) =>
   });
 
 export function RisksIssuesPage(): JSX.Element {
-  const [business, setBusiness] = useState(sampleBusinesses[0]);
+  const [searchParams] = useSearchParams();
+  const requestedBusiness = searchParams.get("business") ?? "";
+  const business = sampleBusinesses.includes(requestedBusiness) ? requestedBusiness : "";
   const [filter, setFilter] = useState<RiskFilter>("All");
   const [risks, setRisks] = useState(sampleRisks);
-  const [selectedId, setSelectedId] = useState<string | null>(sampleRisks[0].id);
-  const businessRisks = useMemo(() => risks.filter((risk) => risk.business === business), [business, risks]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const businessRisks = useMemo(
+    () => risks.filter((risk) => business && risk.business === business),
+    [business, risks],
+  );
   const visibleRisks = businessRisks.filter((risk) => filter === "All" || risk.status === filter);
   const selectedRisk = businessRisks.find((risk) => risk.id === selectedId) ?? null;
   const openCount = businessRisks.filter((risk) => risk.status === "Open").length;
@@ -30,17 +36,11 @@ export function RisksIssuesPage(): JSX.Element {
         <div>
           <span className="eyebrow">MANUFACTURING OPERATIONS · DEMO DATA</span>
           <h1>Risks &amp; Issues</h1>
-          <p>Spot production risks early, inspect where they happened, and track the response.</p>
+          <p>{business ? `${business} · Spot production risks early and track the response.` : "Select a business from the top menu to view its production risks."}</p>
         </div>
-        <label className="feature-project-picker">
-          <span>Manufacturing business</span>
-          <select value={business} onChange={(event) => { setBusiness(event.target.value); setSelectedId(null); setFilter("All"); }}>
-            {sampleBusinesses.map((name) => <option key={name} value={name}>{name}</option>)}
-          </select>
-        </label>
       </header>
 
-      <div className="demo-data-note"><span aria-hidden="true">ⓘ</span> Sample records for preview only. Business data can be connected to PostgreSQL later.</div>
+      {business ? <div className="demo-data-note"><span aria-hidden="true">ⓘ</span> Sample records for preview only. Business data can be connected to PostgreSQL later.</div> : null}
 
       <div className="feature-metrics">
         <article className="feature-metric"><span>Active issues</span><strong>{openCount}</strong><small>Require follow-up</small></article>

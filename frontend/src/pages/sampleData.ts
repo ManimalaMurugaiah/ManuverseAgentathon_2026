@@ -97,6 +97,7 @@ export const sampleRisks: SampleRisk[] = [
 export interface SampleAction {
   id: string;
   title: string;
+  business: string;
   milestone: string;
   owner: string;
   priority: "High" | "Medium" | "Low";
@@ -107,12 +108,12 @@ export interface SampleAction {
 }
 
 export const sampleActions: SampleAction[] = [
-  { id: "A-001", title: "Complete engineering approval for design", milestone: "Engineering Approval", owner: "Ravi", priority: "High", dueDate: "2026-10-10", status: "Open", project: "PRJ-001", details: "Review and sign off the latest equipment layout and design package." },
-  { id: "A-002", title: "Expedite PO release with vendor", milestone: "PO Release", owner: "Kumar", priority: "High", dueDate: "2026-10-12", status: "In Progress", project: "PRJ-001", details: "Confirm purchase order release and obtain the supplier's acknowledged delivery date." },
-  { id: "A-003", title: "Confirm material delivery schedule", milestone: "Material Delivery", owner: "Vendor A", priority: "Medium", dueDate: "2026-10-20", status: "Open", project: "PRJ-002", details: "Verify quantities, shipping dates, and receiving capacity for critical materials." },
-  { id: "A-004", title: "Check site readiness for installation", milestone: "Installation", owner: "Site Team", priority: "Medium", dueDate: "2026-10-25", status: "Overdue", project: "PRJ-001", details: "Confirm utilities, access routes, and safety permits are ready for installation." },
-  { id: "A-005", title: "Commissioning test setup", milestone: "Commissioning", owner: "Commissioning Team", priority: "Low", dueDate: "2026-10-30", status: "Open", project: "PRJ-002", details: "Prepare commissioning procedures, test instruments, and the site acceptance checklist." },
-  { id: "A-006", title: "Close supplier quality documentation", milestone: "Vendor Manufacturing", owner: "Anita", priority: "Medium", dueDate: "2026-10-28", status: "Completed", project: "PRJ-001", details: "Collect material certificates and inspection records from the equipment supplier." },
-  { id: "A-007", title: "Reserve factory acceptance test slot", milestone: "FAT", owner: "Daniel", priority: "High", dueDate: "2026-11-02", status: "In Progress", project: "PRJ-002", details: "Align the factory test schedule with vendor readiness and stakeholder availability." },
-  { id: "A-008", title: "Publish updated installation risk assessment", milestone: "Site Readiness", owner: "Priya", priority: "Low", dueDate: "2026-11-04", status: "Open", project: "PRJ-001", details: "Share the reviewed installation risk assessment with site and engineering teams." },
+  { id: "A-001", title: "Complete engineering approval for design", business: sampleBusinesses[0], milestone: "Engineering Approval", owner: "Ravi", priority: "High", dueDate: "2026-10-10", status: "Open", project: "PRJ-001", details: "Review and sign off the latest equipment layout and design package." },
+  { id: "A-002", title: "Expedite PO release with vendor", business: sampleBusinesses[0], milestone: "PO Release", owner: "Kumar", priority: "High", dueDate: "2026-10-12", status: "In Progress", project: "PRJ-001", details: "Confirm purchase order release and obtain the supplier's acknowledged delivery date." },
+  { id: "A-003", title: "Confirm material delivery schedule", business: sampleBusinesses[1], milestone: "Material Delivery", owner: "Vendor A", priority: "Medium", dueDate: "2026-10-20", status: "Open", project: "PRJ-002", details: "Verify quantities, shipping dates, and receiving capacity for critical materials." },
+  { id: "A-004", title: "Check site readiness for installation", business: sampleBusinesses[1], milestone: "Installation", owner: "Site Team", priority: "Medium", dueDate: "2026-10-25", status: "Overdue", project: "PRJ-001", details: "Confirm utilities, access routes, and safety permits are ready for installation." },
+  { id: "A-005", title: "Commissioning test setup", business: sampleBusinesses[2], milestone: "Commissioning", owner: "Commissioning Team", priority: "Low", dueDate: "2026-10-30", status: "Open", project: "PRJ-002", details: "Prepare commissioning procedures, test instruments, and the site acceptance checklist." },
+  { id: "A-006", title: "Close supplier quality documentation", business: sampleBusinesses[3], milestone: "Vendor Manufacturing", owner: "Anita", priority: "Medium", dueDate: "2026-10-28", status: "Completed", project: "PRJ-001", details: "Collect material certificates and inspection records from the equipment supplier." },
+  { id: "A-007", title: "Reserve factory acceptance test slot", business: sampleBusinesses[4], milestone: "FAT", owner: "Daniel", priority: "High", dueDate: "2026-11-02", status: "In Progress", project: "PRJ-002", details: "Align the factory test schedule with vendor readiness and stakeholder availability." },
+  { id: "A-008", title: "Publish updated installation risk assessment", business: sampleBusinesses[4], milestone: "Site Readiness", owner: "Priya", priority: "Low", dueDate: "2026-11-04", status: "Open", project: "PRJ-001", details: "Share the reviewed installation risk assessment with site and engineering teams." },
 ];

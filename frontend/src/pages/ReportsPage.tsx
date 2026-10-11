@@ -215,6 +215,7 @@ function ReportTrendChart({ period, stats }: { period: ReportPeriod; stats: (typ
 export function ReportsPage(): JSX.Element {
   const [searchParams] = useSearchParams();
   const globalProject = searchParams.get("project_code") ?? "";
+  const selectedBusiness = searchParams.get("business") ?? "";
   const [project, setProject] = useState(globalProject || reportProjects[0]);
   const [period, setPeriod] = useState<ReportPeriod>("Weekly");
   const [tab, setTab] = useState<ReportTab>("Project Health");
@@ -243,10 +244,14 @@ export function ReportsPage(): JSX.Element {
   );
   const displayRange = rangeOverride ?? stats.range;
   const projectRisks = useMemo(
-    () => sampleRisks.filter((risk) => risk.business === (project === "PRJ-001" ? sampleBusinesses[0] : sampleBusinesses[4])),
-    [project],
+    () => sampleRisks.filter((risk) => risk.business === (
+      selectedBusiness || (project === "PRJ-001" ? sampleBusinesses[0] : sampleBusinesses[4])
+    )),
+    [project, selectedBusiness],
   );
-  const projectActions = sampleActions.filter((action) => action.project === project);
+  const projectActions = sampleActions.filter((action) =>
+    selectedBusiness ? action.business === selectedBusiness : action.project === project,
+  );
 
   useEffect(() => {
     if (globalProject && reportProjects.includes(globalProject)) setProject(globalProject);
