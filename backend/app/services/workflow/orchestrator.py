@@ -1,11 +1,15 @@
+import logging
 from datetime import datetime
-from datetime import timezone
 
+import httpx
+import redis
 from sqlalchemy.orm import Session
 
 from app.models.workflow import WorkflowLog, WorkflowRun
 from app.services.ai.provider import ai_service
 from app.services.redis_client import redis_client
+
+logger = logging.getLogger(__name__)
 
 WORKFLOW_STAGES = [
     "Design Freeze",
@@ -67,7 +71,7 @@ class WorkflowOrchestrator:
                 run.current_stage = WORKFLOW_STAGES[current_index + 1]
                 self._add_log(db, run.id, AGENT_BY_STAGE[run.current_stage], "Moved to next stage", "success", note)
 
-        run.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        run.updated_at = datetime.utcnow()
         db.add(run)
         db.commit()
         db.refresh(run)
@@ -75,17 +79,6 @@ class WorkflowOrchestrator:
         self._cache_status(run)
         await self._log_ai_action(db, run, f"Step processed. approved={approved}")
         return run
-
-    async def auto_advance(self, db: Session, run: WorkflowRun, max_steps: int = 1, note: str = "Auto agent") -> WorkflowRun:
-        if max_steps < 1:
-            max_steps = 1
-
-        current = run
-        for _ in range(max_steps):
-            if current.status != "running":
-                break
-            current = await self.step(db, current, approved=True, note=note)
-        return current
 
     def list_logs(self, db: Session, run_id: int) -> list[WorkflowLog]:
         return db.query(WorkflowLog).filter(WorkflowLog.run_id == run_id).order_by(WorkflowLog.id.asc()).all()
@@ -101,9 +94,8 @@ class WorkflowOrchestrator:
                     "updated_at": run.updated_at.isoformat() if run.updated_at else "",
                 },
             )
-        except Exception:
-            # Redis is an optional cache in local mode; workflow must still proceed.
-            return
+        except redis.RedisError as exc:
+            logger.warning("Redis cache unavailable while updating workflow run %s: %s", run.id, exc)
 
     def _add_log(self, db: Session, run_id: int, agent_name: str, action: str, status: str, details: str) -> None:
         log = WorkflowLog(
@@ -123,8 +115,16 @@ class WorkflowOrchestrator:
         )
         try:
             summary = await ai_service.generate(prompt)
-        except Exception:
-            summary = "Auto note: external AI provider unavailable; action recorded by local orchestrator."
+        except (httpx.HTTPError, RuntimeError) as exc:
+            self._add_log(
+                db,
+                run.id,
+                AGENT_BY_STAGE.get(run.current_stage, "System"),
+                action,
+                "warning",
+                f"AI note unavailable: {exc}",
+            )
+            return
         self._add_log(db, run.id, AGENT_BY_STAGE.get(run.current_stage, "System"), action, run.status, summary)
 
 

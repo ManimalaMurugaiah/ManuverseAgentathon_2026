@@ -1,49 +1,75 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import api from "../api/client";
+import { getApiErrorMessage } from "../api/errors";
 import type { DashboardSummary } from "../types";
 
 export function AnalyticsPage(): JSX.Element {
-  const [summary, setSummary] = useState<DashboardSummary>({
-    total_runs: 0,
-    running: 0,
-    blocked: 0,
-    completed: 0,
-  });
+  const [searchParams] = useSearchParams();
+  const projectCode = searchParams.get("project_code") ?? "";
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    const load = async () => {
-      const { data } = await api.get<DashboardSummary>("/dashboard/summary");
-      setSummary(data);
-    };
+    let active = true;
+    const params = projectCode ? { project_code: projectCode } : undefined;
+    api.get<DashboardSummary>("/dashboard/summary", { params })
+      .then(({ data }) => {
+        if (active) {
+          setSummary(data);
+          setError("");
+        }
+      })
+      .catch((loadError: unknown) => {
+        if (active) setError(getApiErrorMessage(loadError, "Could not load analytics."));
+      });
 
-    void load();
-  }, []);
+    return () => {
+      active = false;
+    };
+  }, [projectCode]);
 
   const data = useMemo(
     () => [
-      { name: "Running", value: summary.running },
-      { name: "Blocked", value: summary.blocked },
-      { name: "Completed", value: summary.completed },
+      { name: "Running", value: summary?.running ?? 0 },
+      { name: "Blocked", value: summary?.blocked ?? 0 },
+      { name: "Completed", value: summary?.completed ?? 0 },
     ],
     [summary],
   );
 
   return (
-    <section>
-      <h2>AI and Workflow Analytics</h2>
+    <section className="analytics-page">
+      <header className="page-heading">
+        <div>
+          <h1>Workflow Analytics</h1>
+          <p className="page-subtitle">
+            {projectCode ? `Run status for ${projectCode}.` : "Run status across all projects."}
+          </p>
+        </div>
+      </header>
+      {error ? <div className="dashboard-error" role="alert">{error}</div> : null}
+      <div className="summary-grid analytics-summary">
+        <article className="summary-card"><div className="summary-copy"><span className="summary-label">Total Runs</span><strong>{summary?.total_runs ?? "…"}</strong></div></article>
+        <article className="summary-card"><div className="summary-copy"><span className="summary-label">Running</span><strong>{summary?.running ?? "…"}</strong></div></article>
+        <article className="summary-card"><div className="summary-copy"><span className="summary-label">Blocked</span><strong>{summary?.blocked ?? "…"}</strong></div></article>
+        <article className="summary-card"><div className="summary-copy"><span className="summary-label">Completed</span><strong>{summary?.completed ?? "…"}</strong></div></article>
+      </div>
       <div className="chart-card">
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" />
-            <YAxis />
-            <Tooltip />
-            <Legend />
-            <Bar dataKey="value" fill="#1d4ed8" />
-          </BarChart>
-        </ResponsiveContainer>
+        {summary ? (
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={data}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" />
+              <YAxis allowDecimals={false} />
+              <Tooltip />
+              <Legend />
+              <Bar dataKey="value" fill="#1d4ed8" />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : <p className="muted">{error ? "Analytics data is unavailable." : "Loading analytics…"}</p>}
       </div>
     </section>
   );

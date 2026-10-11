@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
@@ -14,16 +14,16 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 @router.get("/summary")
 def summary(
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles("admin", "manager", "viewer"))],
+    _: Annotated[User, Depends(require_roles("admin", "manager", "engineering", "approver", "viewer"))],
+    project_code: str | None = Query(default=None, min_length=1, max_length=64),
 ) -> dict[str, int]:
-    total = db.query(WorkflowRun).count()
-    running = db.query(WorkflowRun).filter(WorkflowRun.status == "running").count()
-    blocked = db.query(WorkflowRun).filter(WorkflowRun.status == "blocked").count()
-    completed = db.query(WorkflowRun).filter(WorkflowRun.status == "completed").count()
+    query = db.query(WorkflowRun)
+    if project_code:
+        query = query.filter(WorkflowRun.project_code == project_code)
 
     return {
-        "total_runs": total,
-        "running": running,
-        "blocked": blocked,
-        "completed": completed,
+        "total_runs": query.count(),
+        "running": query.filter(WorkflowRun.status == "running").count(),
+        "blocked": query.filter(WorkflowRun.status == "blocked").count(),
+        "completed": query.filter(WorkflowRun.status == "completed").count(),
     }

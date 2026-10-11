@@ -11,6 +11,7 @@ export interface WorkflowRun {
   current_stage: string;
   status: string;
   created_at: string;
+  updated_at: string;
 }
 
 export interface DashboardSummary {

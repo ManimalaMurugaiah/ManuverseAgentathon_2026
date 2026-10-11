@@ -6,7 +6,7 @@ from app.core.config import settings
 class OpenRouterClient:
     async def generate(self, prompt: str) -> str:
         if not settings.openrouter_api_key:
-            return "OpenRouter fallback is not configured."
+            raise RuntimeError("OPENROUTER_API_KEY is not configured.")
 
         headers = {
             "Authorization": f"Bearer {settings.openrouter_api_key}",

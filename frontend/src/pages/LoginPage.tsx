@@ -1,29 +1,29 @@
 import { useState } from "react";
-import { isAxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
 
+import { getApiErrorMessage } from "../api/errors";
 import { useAuth } from "../context/AuthContext";
 
 export function LoginPage(): JSX.Element {
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("Admin@123");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
+    setSubmitting(true);
     try {
       await login(username, password);
       navigate("/");
-    } catch (error: unknown) {
-      if (isAxiosError<{ detail?: string }>(error)) {
-        setError(error.response?.data?.detail ?? "Invalid username or password");
-        return;
-      }
-      setError("Invalid username or password");
+    } catch (loginError) {
+      setError(getApiErrorMessage(loginError, "Login failed. Check your username and password."));
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -33,15 +33,15 @@ export function LoginPage(): JSX.Element {
         <h2>Sign In</h2>
         <p className="muted">Use seeded admin account for first login.</p>
         <label>
-          <span>Username</span>
+          Username
           <input value={username} onChange={(e) => setUsername(e.target.value)} />
         </label>
         <label>
-          <span>Password</span>
+          Password
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </label>
-        {error ? <p className="error">{error}</p> : null}
-        <button type="submit">Login</button>
+        {error ? <p className="error" role="alert">{error}</p> : null}
+        <button type="submit" disabled={submitting}>{submitting ? "Signing in…" : "Login"}</button>
       </form>
     </div>
   );
