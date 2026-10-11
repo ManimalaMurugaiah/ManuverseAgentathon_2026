@@ -5,6 +5,8 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
+import { MilestonesPage } from "./pages/MilestonesPage";
+import { ProjectsPage } from "./pages/ProjectsPage";
 import { UnauthorizedPage } from "./pages/UnauthorizedPage";
 import { WorkflowPage } from "./pages/WorkflowPage";
 
@@ -23,6 +25,9 @@ function App(): JSX.Element {
         }
       >
         <Route index element={<DashboardPage />} />
+        <Route path="projects" element={<ProjectsPage />} />
+        <Route path="milestones" element={<MilestonesPage />} />
+        <Route path="projects/:projectId/milestones" element={<MilestonesPage />} />
         <Route path="workflow" element={<WorkflowPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
       </Route>
