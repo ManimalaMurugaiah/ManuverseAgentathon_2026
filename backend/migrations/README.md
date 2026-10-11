@@ -26,6 +26,7 @@ Apply in order on a database created from `ManuVerseDB.sql`; each script is idem
 1. `001_auth_users_hardening.sql` - `Users` login constraints.
 2. `002_projects_milestones.sql` - `Projects.AiAgentsEnabled`, `Milestones.ProgressPct`, approval and evidence tables.
 3. `003_seed_reference_data.sql` - roles, permissions, process stages, governance rules, agents, and the admin `UserRoles` link.
+4. `004_project_wizard_and_operations.sql` - columns and tables backing the dynamic menus (project details, risks, actions, settings, report schedules).
 
 For production-style migrations, use Alembic:
 

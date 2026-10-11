@@ -6,7 +6,7 @@ import App from "./App";
 import { AuthProvider } from "./context/AuthContext";
 
 describe("App", () => {
-  it("renders without crashing", () => {
+  it("renders the login screen when there is no session", async () => {
     render(
       <BrowserRouter>
         <AuthProvider>
@@ -15,6 +15,6 @@ describe("App", () => {
       </BrowserRouter>,
     );
 
-    expect(screen.getByText(/checking session/i)).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /sign in/i })).toBeTruthy();
   });
 });
