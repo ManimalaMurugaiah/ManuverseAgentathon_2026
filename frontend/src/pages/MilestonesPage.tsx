@@ -5,7 +5,7 @@ import api from "../api/client";
 import { getApiErrorMessage } from "../api/errors";
 import { useApiData } from "../api/useApiData";
 import { useBusiness } from "../api/useBusiness";
-import { Modal } from "../components/Modal";
+import { Field, FormDrawer } from "../components/FormDrawer";
 import { ErrorState, LoadingState, Notice, Pill, ProgressBar, scheduleTone } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 import type { ApprovalWorkflow, Milestone, MilestoneList, MilestoneStatus, ProjectList } from "../types";
@@ -109,9 +109,12 @@ export function MilestonesPage(): JSX.Element {
     setFormFor({ milestone });
   };
 
-  const saveMilestone = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const saveMilestone = async () => {
     if (!formFor) return;
+    if (form.name.trim().length < 2 || !form.owner.trim() || !form.dueDate) {
+      setFormError("Milestone name, due date and owner are required.");
+      return;
+    }
     const progress = Number(form.progress);
     if (!Number.isInteger(progress) || progress < 0 || progress > 100) {
       setFormError("Progress must be a whole number from 0 to 100.");
@@ -279,30 +282,46 @@ export function MilestonesPage(): JSX.Element {
       </div>
 
       {formFor ? (
-        <Modal eyebrow="MILESTONE REGISTER" title={formFor.milestone ? "Edit milestone" : "Add milestone"} onClose={() => setFormFor(null)}>
-          <form className="feature-form" onSubmit={(event) => void saveMilestone(event)}>
-            <label>Milestone name<input required minLength={2} maxLength={200} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
-            <div className="form-row">
-              <label>Due date<input required type="date" value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} /></label>
-              <label>Owner<input required maxLength={100} value={form.owner} onChange={(event) => setForm({ ...form, owner: event.target.value })} /></label>
-            </div>
-            <div className="form-row">
-              <label>Status
-                <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as MilestoneStatus, progress: event.target.value === "Completed" ? "100" : form.progress })}>
-                  {STATUSES.map((status) => <option key={status}>{status}</option>)}
-                </select>
-              </label>
-              <label>Progress (%)<input type="number" min={0} max={100} step={1} disabled={form.status === "Completed"} value={form.progress} onChange={(event) => setForm({ ...form, progress: event.target.value })} /></label>
-            </div>
-            {formFor.milestone ? <label>Forecast date<input type="date" value={form.forecastDate} onChange={(event) => setForm({ ...form, forecastDate: event.target.value })} /></label> : null}
-            <label className="pl-check"><input type="checkbox" checked={form.critical} onChange={(event) => setForm({ ...form, critical: event.target.checked })} /> Critical path milestone</label>
-            {formError ? <p className="wiz-error" role="alert">{formError}</p> : null}
-            <div className="modal-actions">
-              <button type="button" className="secondary-button" onClick={() => setFormFor(null)}>Cancel</button>
-              <button type="submit" className="milestone-add-button" disabled={saving}>{saving ? "Saving…" : formFor.milestone ? "Save changes" : "Add milestone"}</button>
-            </div>
-          </form>
-        </Modal>
+        <FormDrawer
+          title={formFor.milestone ? `Edit Milestone - ${formFor.milestone.name}` : "Add Milestone"}
+          subtitle={formFor.milestone ? "Update the milestone details" : "Provide the details for the new milestone"}
+          submitLabel={formFor.milestone ? "Save changes" : "Add milestone"}
+          saving={saving}
+          error={formError}
+          onClose={() => setFormFor(null)}
+          onSubmit={() => void saveMilestone()}
+        >
+          <Field label="Milestone Name" required>
+            <input maxLength={200} value={form.name} placeholder="e.g. Engineering Approval" onChange={(event) => setForm({ ...form, name: event.target.value })} />
+          </Field>
+          <div className="wiz-row">
+            <Field label="Due Date" required>
+              <input type="date" value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} />
+            </Field>
+            <Field label="Owner" required>
+              <input maxLength={100} value={form.owner} onChange={(event) => setForm({ ...form, owner: event.target.value })} />
+            </Field>
+          </div>
+          <div className="wiz-row">
+            <Field label="Status" required>
+              <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as MilestoneStatus, progress: event.target.value === "Completed" ? "100" : form.progress })}>
+                {STATUSES.map((status) => <option key={status}>{status}</option>)}
+              </select>
+            </Field>
+            <Field label="Progress (%)">
+              <input type="number" min={0} max={100} step={1} disabled={form.status === "Completed"} value={form.progress} onChange={(event) => setForm({ ...form, progress: event.target.value })} />
+            </Field>
+          </div>
+          {formFor.milestone ? (
+            <Field label="Forecast Date">
+              <input type="date" value={form.forecastDate} onChange={(event) => setForm({ ...form, forecastDate: event.target.value })} />
+            </Field>
+          ) : null}
+          <label className="wiz-check">
+            <input type="checkbox" checked={form.critical} onChange={(event) => setForm({ ...form, critical: event.target.checked })} />
+            <span><strong>Critical path milestone</strong><small>Delays to this milestone move the project end date.</small></span>
+          </label>
+        </FormDrawer>
       ) : null}
     </section>
   );

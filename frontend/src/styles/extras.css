@@ -4,6 +4,10 @@
 .pl-critical { color: #d92f27; font-size: 12px; }
 .pl-check { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .pl-check input { width: auto; }
+.wiz-drawer--narrow { width: min(640px, 100%); }
+.wiz-body--single { grid-template-columns: minmax(0, 1fr); }
+.wiz-field--check { grid-template-columns: auto 1fr; align-items: center; }
+.wiz-field--check input { width: auto; }
 .pl-evidence-form { display: flex; gap: 8px; margin-top: 10px; }
 .pl-evidence-form input { flex: 1; min-width: 0; padding: 7px 9px; border: 1px solid #d6dfec; border-radius: 7px; font: inherit; font-size: 12px; }
 .milestone-attachments span { padding: 6px 9px; border-radius: 6px; background: #f1f5fa; color: #51627a; font-size: 11px; }

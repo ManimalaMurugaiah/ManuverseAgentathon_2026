@@ -5,6 +5,7 @@ import api from "../api/client";
 import { getApiErrorMessage } from "../api/errors";
 import { useApiData } from "../api/useApiData";
 import { useBusiness } from "../api/useBusiness";
+import { Field, FormDrawer } from "../components/FormDrawer";
 import { Modal } from "../components/Modal";
 import { ErrorState, LoadingState, Notice } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
@@ -49,6 +50,7 @@ export function RisksIssuesPage(): JSX.Element {
 
   const [selected, setSelected] = useState<Risk | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState<Risk | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm("", ""));
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -85,25 +87,46 @@ export function RisksIssuesPage(): JSX.Element {
   }, [all]);
 
   const openCreate = () => {
+    setEditing(null);
     setForm(emptyForm(projectId || (projects.data?.items[0] ? String(projects.data.items[0].id) : ""), user?.username ?? ""));
     setFormError("");
     setShowCreate(true);
   };
 
-  const create = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const openEdit = (risk: Risk) => {
+    setEditing(risk);
+    setSelected(null);
+    setForm({
+      projectId: String(risk.project_id ?? ""), title: risk.title, type: risk.risk_type, impact: risk.impact ?? "Medium",
+      likelihood: risk.likelihood ?? "Medium", owner: risk.owner ?? "", dueDate: risk.due_date ?? "",
+      description: risk.description ?? "", mitigation: risk.mitigation ?? "",
+    });
+    setFormError("");
+    setShowCreate(true);
+  };
+
+  const create = async () => {
     if (!form.projectId) { setFormError("Choose the project this belongs to."); return; }
+    if (form.title.trim().length < 2 || !form.owner.trim()) { setFormError("Title and owner are required."); return; }
     setSaving(true);
     setFormError("");
     try {
-      await api.post("/risks", {
-        project_id: Number(form.projectId), title: form.title.trim(), risk_type: form.type, impact: form.impact,
-        likelihood: form.likelihood, owner: form.owner.trim(), due_date: form.dueDate || null,
-        description: form.description.trim() || null, mitigation: form.mitigation.trim() || null,
-      });
+      if (editing) {
+        await api.patch(`/risks/${editing.id}`, {
+          title: form.title.trim(), risk_type: form.type, impact: form.impact, likelihood: form.likelihood,
+          owner: form.owner.trim(), due_date: form.dueDate || null,
+          description: form.description.trim() || null, mitigation: form.mitigation.trim() || null,
+        });
+      } else {
+        await api.post("/risks", {
+          project_id: Number(form.projectId), title: form.title.trim(), risk_type: form.type, impact: form.impact,
+          likelihood: form.likelihood, owner: form.owner.trim(), due_date: form.dueDate || null,
+          description: form.description.trim() || null, mitigation: form.mitigation.trim() || null,
+        });
+      }
       setShowCreate(false);
       setType(""); setSeverity(""); setStatus("");
-      tell("Risk or issue added.");
+      tell(editing ? "Risk or issue updated." : "Risk or issue added.");
       reload();
     } catch (error) {
       setFormError(getApiErrorMessage(error, "Could not save this risk or issue."));
@@ -144,7 +167,7 @@ export function RisksIssuesPage(): JSX.Element {
           {list.loading && !list.data ? <LoadingState /> : (
             <div className="responsive-table-wrap">
               <table className="feature-table risk-register-table" aria-label="Risk and issue register">
-                <thead><tr><th>Type</th><th>Title</th><th>Project</th><th>Severity</th><th>Status</th><th>Owner</th><th>Due date</th></tr></thead>
+                <thead><tr><th>Type</th><th>Title</th><th>Project</th><th>Severity</th><th>Status</th><th>Owner</th><th>Due date</th>{canWrite ? <th><span className="visually-hidden">Actions</span></th> : null}</tr></thead>
                 <tbody>
                   {items.map((risk) => (
                     <tr key={risk.id}>
@@ -154,9 +177,10 @@ export function RisksIssuesPage(): JSX.Element {
                       <td><span className={`priority-pill priority-${risk.severity.toLowerCase()}`}>{risk.severity}</span></td>
                       <td><span className={`status-pill status-${risk.status.toLowerCase()}`}>{risk.status}</span></td>
                       <td>{risk.owner ?? "—"}</td><td>{formatDate(risk.due_date)}</td>
+                      {canWrite ? <td><button type="button" className="table-action-button" aria-label={`Edit ${risk.title}`} onClick={() => openEdit(risk)}>Edit</button></td> : null}
                     </tr>
                   ))}
-                  {list.data && !items.length ? <tr><td colSpan={7} className="table-empty">{type || severity || status ? "No risks or issues match the selected filters." : "No risks or issues have been recorded yet."}</td></tr> : null}
+                  {list.data && !items.length ? <tr><td colSpan={canWrite ? 8 : 7} className="table-empty">{type || severity || status ? "No risks or issues match the selected filters." : "No risks or issues have been recorded yet."}</td></tr> : null}
                 </tbody>
               </table>
             </div>
@@ -198,31 +222,50 @@ export function RisksIssuesPage(): JSX.Element {
       ) : null}
 
       {showCreate ? (
-        <Modal eyebrow="RISK REGISTER" title="Add risk or issue" onClose={() => setShowCreate(false)}>
-          <form className="feature-form" onSubmit={(event) => void create(event)}>
-            <label>Project
-              <select required value={form.projectId} onChange={(event) => setForm({ ...form, projectId: event.target.value })}>
-                <option value="">Select project</option>
-                {(projects.data?.items ?? []).map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-              </select>
-            </label>
-            <label>Title<input required minLength={2} maxLength={200} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
-            <div className="form-row">
-              <label>Type<select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as "Risk" | "Issue" })}><option>Risk</option><option>Issue</option></select></label>
-              <label>Owner<input required maxLength={100} value={form.owner} onChange={(event) => setForm({ ...form, owner: event.target.value })} /></label>
-            </div>
-            <div className="form-row">
-              <label>Likelihood<select value={form.likelihood} onChange={(event) => setForm({ ...form, likelihood: event.target.value })}>{LEVELS.map((level) => <option key={level}>{level}</option>)}</select></label>
-              <label>Impact<select value={form.impact} onChange={(event) => setForm({ ...form, impact: event.target.value })}>{IMPACTS.map((level) => <option key={level}>{level}</option>)}</select></label>
-            </div>
-            <label>Due date<input type="date" value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} /></label>
-            <label>Description<textarea rows={3} maxLength={500} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
-            <label>Mitigation / next step<textarea rows={3} maxLength={1000} value={form.mitigation} onChange={(event) => setForm({ ...form, mitigation: event.target.value })} /></label>
-            <p className="pl-muted">Severity is calculated from likelihood and impact.</p>
-            {formError ? <p className="wiz-error" role="alert">{formError}</p> : null}
-            <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setShowCreate(false)}>Cancel</button><button type="submit" className="risk-add-button" disabled={saving}>{saving ? "Saving…" : "Add risk / issue"}</button></div>
-          </form>
-        </Modal>
+        <FormDrawer
+          title={editing ? `Edit ${editing.risk_type} - ${editing.title}` : "Add Risk / Issue"}
+          subtitle={editing ? "Update the details and mitigation" : "Record a new risk or issue for a project"}
+          submitLabel={editing ? "Save changes" : "Add risk / issue"}
+          saving={saving}
+          error={formError}
+          onClose={() => setShowCreate(false)}
+          onSubmit={() => void create()}
+        >
+          <Field label="Project" required hint={editing ? "The project cannot be changed." : undefined}>
+            <select disabled={Boolean(editing)} value={form.projectId} onChange={(event) => setForm({ ...form, projectId: event.target.value })}>
+              <option value="">Select project</option>
+              {(projects.data?.items ?? []).map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Title" required>
+            <input maxLength={200} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} />
+          </Field>
+          <div className="wiz-row">
+            <Field label="Type" required>
+              <select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as "Risk" | "Issue" })}><option>Risk</option><option>Issue</option></select>
+            </Field>
+            <Field label="Owner" required>
+              <input maxLength={100} value={form.owner} onChange={(event) => setForm({ ...form, owner: event.target.value })} />
+            </Field>
+          </div>
+          <div className="wiz-row">
+            <Field label="Likelihood">
+              <select value={form.likelihood} onChange={(event) => setForm({ ...form, likelihood: event.target.value })}>{LEVELS.map((level) => <option key={level}>{level}</option>)}</select>
+            </Field>
+            <Field label="Impact">
+              <select value={form.impact} onChange={(event) => setForm({ ...form, impact: event.target.value })}>{IMPACTS.map((level) => <option key={level}>{level}</option>)}</select>
+            </Field>
+          </div>
+          <Field label="Due Date" hint="Severity is calculated from likelihood and impact.">
+            <input type="date" value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} />
+          </Field>
+          <Field label="Description">
+            <textarea rows={3} maxLength={500} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
+          </Field>
+          <Field label="Mitigation / Next Step">
+            <textarea rows={3} maxLength={1000} value={form.mitigation} onChange={(event) => setForm({ ...form, mitigation: event.target.value })} />
+          </Field>
+        </FormDrawer>
       ) : null}
 
       {selected ? (
@@ -241,7 +284,10 @@ export function RisksIssuesPage(): JSX.Element {
               <select value={selected.status} onChange={(event) => void changeStatus(selected, event.target.value)}>{STATUSES.map((item) => <option key={item}>{item}</option>)}</select>
             </label>
           ) : null}
-          <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setSelected(null)}>Close</button></div>
+          <div className="modal-actions">
+            <button type="button" className="secondary-button" onClick={() => setSelected(null)}>Close</button>
+            {canWrite ? <button type="button" className="primary-button" onClick={() => openEdit(selected)}>Edit</button> : null}
+          </div>
         </Modal>
       ) : null}
     </section>

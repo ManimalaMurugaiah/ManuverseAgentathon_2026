@@ -5,6 +5,7 @@ import api from "../api/client";
 import { getApiErrorMessage } from "../api/errors";
 import { useApiData } from "../api/useApiData";
 import { useBusiness } from "../api/useBusiness";
+import { Field, FormDrawer } from "../components/FormDrawer";
 import { Modal } from "../components/Modal";
 import { ErrorState, LoadingState, Notice } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
@@ -51,6 +52,7 @@ export function ActionsPage(): JSX.Element {
 
   const [selected, setSelected] = useState<Action | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState<Action | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm("", ""));
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -62,29 +64,50 @@ export function ActionsPage(): JSX.Element {
   const items = list.data?.items ?? [];
 
   const openCreate = () => {
+    setEditing(null);
     setForm(emptyForm(projectId || (projects.data?.items[0] ? String(projects.data.items[0].id) : ""), user?.username ?? ""));
     setFormError("");
     setShowCreate(true);
   };
 
-  const create = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const openEdit = (action: Action) => {
+    setEditing(action);
+    setSelected(null);
+    setForm({
+      projectId: String(action.project_id ?? ""), title: action.title, description: action.description ?? "",
+      owner: action.owner ?? "", dueDate: action.due_date ?? "", priority: action.priority as FormState["priority"],
+      actionType: action.action_type as FormState["actionType"], runBy: action.run_by as FormState["runBy"],
+      milestoneId: String(action.milestone_id ?? ""),
+    });
+    setFormError("");
+    setShowCreate(true);
+  };
+
+  const create = async () => {
     if (!form.projectId) { setFormError("Choose the project this action belongs to."); return; }
+    if (form.title.trim().length < 2 || !form.owner.trim() || !form.dueDate) { setFormError("Title, owner and due date are required."); return; }
     setSaving(true);
     setFormError("");
     try {
-      await api.post("/actions", {
-        project_id: Number(form.projectId), title: form.title.trim(), description: form.description.trim() || null,
-        owner: form.owner.trim(), due_date: form.dueDate, priority: form.priority, action_type: form.actionType,
-        run_by: form.runBy, milestone_id: form.milestoneId ? Number(form.milestoneId) : null,
-      });
+      if (editing) {
+        await api.patch(`/actions/${editing.id}`, {
+          title: form.title.trim(), description: form.description.trim() || null, owner: form.owner.trim(),
+          due_date: form.dueDate, priority: form.priority, action_type: form.actionType,
+        });
+      } else {
+        await api.post("/actions", {
+          project_id: Number(form.projectId), title: form.title.trim(), description: form.description.trim() || null,
+          owner: form.owner.trim(), due_date: form.dueDate, priority: form.priority, action_type: form.actionType,
+          run_by: form.runBy, milestone_id: form.milestoneId ? Number(form.milestoneId) : null,
+        });
+        setView("All Actions");
+        setStatus(""); setRunBy("");
+      }
       setShowCreate(false);
-      setView("All Actions");
-      setStatus(""); setRunBy("");
-      tell("Action created.");
+      tell(editing ? "Action updated." : "Action created.");
       list.reload();
     } catch (error) {
-      setFormError(getApiErrorMessage(error, "Could not create this action."));
+      setFormError(getApiErrorMessage(error, "Could not save this action."));
     } finally {
       setSaving(false);
     }
@@ -137,7 +160,7 @@ export function ActionsPage(): JSX.Element {
           {list.loading && !list.data ? <LoadingState /> : (
             <div className="responsive-table-wrap">
               <table className="feature-table action-table">
-                <thead><tr><th>Action</th><th>Project</th><th>Type</th><th>Priority</th><th>Status</th><th>Owner</th><th>Due date</th><th>Run by</th></tr></thead>
+                <thead><tr><th>Action</th><th>Project</th><th>Type</th><th>Priority</th><th>Status</th><th>Owner</th><th>Due date</th><th>Run by</th>{canWrite ? <th><span className="visually-hidden">Actions</span></th> : null}</tr></thead>
                 <tbody>
                   {items.map((action) => (
                     <tr key={action.id}>
@@ -148,10 +171,11 @@ export function ActionsPage(): JSX.Element {
                       <td><span className={`status-pill status-${(action.is_overdue ? "Overdue" : action.status).toLowerCase().replace(" ", "-")}`}>{action.is_overdue ? "Overdue" : action.status}</span></td>
                       <td>{action.owner ?? "—"}</td><td>{formatDate(action.due_date)}</td>
                       <td><span className={`agent-pill agent-pill--${action.run_by === "AI agent" ? "ai" : "manual"}`}>{action.run_by}</span></td>
+                      {canWrite ? <td><button type="button" className="table-action-button" aria-label={`Edit ${action.title}`} onClick={() => openEdit(action)}>Edit</button></td> : null}
                     </tr>
                   ))}
                   {list.data && !items.length ? (
-                    <tr><td colSpan={8} className="table-empty">{view === "My Actions" && !status && !runBy ? "No actions are assigned to you. Switch to All Actions to see everyone's." : "No actions match these filters."}</td></tr>
+                    <tr><td colSpan={canWrite ? 9 : 8} className="table-empty">{view === "My Actions" && !status && !runBy ? "No actions are assigned to you. Switch to All Actions to see everyone's." : "No actions match these filters."}</td></tr>
                   ) : null}
                 </tbody>
               </table>
@@ -180,38 +204,57 @@ export function ActionsPage(): JSX.Element {
       </div>
 
       {showCreate ? (
-        <Modal eyebrow="ACTION REGISTER" title="Create an action" onClose={() => setShowCreate(false)}>
-          <form className="feature-form" onSubmit={(event) => void create(event)}>
-            <label>Project
-              <select required value={form.projectId} onChange={(event) => setForm({ ...form, projectId: event.target.value, milestoneId: "" })}>
-                <option value="">Select project</option>
-                {(projects.data?.items ?? []).map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+        <FormDrawer
+          title={editing ? `Edit Action - ${editing.title}` : "Create Action"}
+          subtitle={editing ? "Update the action details" : "Assign a task or approval to an owner"}
+          submitLabel={editing ? "Save changes" : "Add action"}
+          saving={saving}
+          error={formError}
+          onClose={() => setShowCreate(false)}
+          onSubmit={() => void create()}
+        >
+          <Field label="Project" required hint={editing ? "The project cannot be changed." : undefined}>
+            <select disabled={Boolean(editing)} value={form.projectId} onChange={(event) => setForm({ ...form, projectId: event.target.value, milestoneId: "" })}>
+              <option value="">Select project</option>
+              {(projects.data?.items ?? []).map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Action Title" required>
+            <input maxLength={200} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="What needs to be done?" />
+          </Field>
+          <div className="wiz-row">
+            <Field label="Owner" required>
+              <input maxLength={100} value={form.owner} onChange={(event) => setForm({ ...form, owner: event.target.value })} />
+            </Field>
+            <Field label="Due Date" required>
+              <input type="date" value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} />
+            </Field>
+          </div>
+          <div className="wiz-row">
+            <Field label="Priority">
+              <select value={form.priority} onChange={(event) => setForm({ ...form, priority: event.target.value as FormState["priority"] })}><option>High</option><option>Medium</option><option>Low</option></select>
+            </Field>
+            <Field label="Type">
+              <select value={form.actionType} onChange={(event) => setForm({ ...form, actionType: event.target.value as FormState["actionType"] })}><option>Task</option><option>Approval</option></select>
+            </Field>
+          </div>
+          <div className="wiz-row">
+            <Field label="Run By" hint={editing ? "Cannot be changed after creation." : undefined}>
+              <select disabled={Boolean(editing)} value={form.runBy} onChange={(event) => setForm({ ...form, runBy: event.target.value as FormState["runBy"] })}><option>Manual</option><option>AI agent</option></select>
+            </Field>
+            <Field label="Milestone">
+              <select disabled={Boolean(editing)} value={form.milestoneId} onChange={(event) => setForm({ ...form, milestoneId: event.target.value })}>
+                <option value="">None</option>
+                {(milestones.data?.items ?? []).map((milestone) => <option key={milestone.id} value={milestone.id}>{milestone.name}</option>)}
+                {editing && editing.milestone_id && !milestones.data ? <option value={editing.milestone_id}>{editing.milestone_name}</option> : null}
               </select>
-            </label>
-            <label>Action title<input required minLength={2} maxLength={200} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="What needs to be done?" /></label>
-            <div className="form-row">
-              <label>Owner<input required maxLength={100} value={form.owner} onChange={(event) => setForm({ ...form, owner: event.target.value })} /></label>
-              <label>Due date<input required type="date" value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} /></label>
-            </div>
-            <div className="form-row">
-              <label>Priority<select value={form.priority} onChange={(event) => setForm({ ...form, priority: event.target.value as FormState["priority"] })}><option>High</option><option>Medium</option><option>Low</option></select></label>
-              <label>Type<select value={form.actionType} onChange={(event) => setForm({ ...form, actionType: event.target.value as FormState["actionType"] })}><option>Task</option><option>Approval</option></select></label>
-            </div>
-            <div className="form-row">
-              <label>Run by<select value={form.runBy} onChange={(event) => setForm({ ...form, runBy: event.target.value as FormState["runBy"] })}><option>Manual</option><option>AI agent</option></select></label>
-              <label>Milestone
-                <select value={form.milestoneId} onChange={(event) => setForm({ ...form, milestoneId: event.target.value })}>
-                  <option value="">None</option>
-                  {(milestones.data?.items ?? []).map((milestone) => <option key={milestone.id} value={milestone.id}>{milestone.name}</option>)}
-                </select>
-              </label>
-            </div>
-            <label>Details<textarea rows={3} maxLength={500} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
-            {form.runBy === "AI agent" ? <p className="pl-muted">AI agent actions wait for an approver before they start.</p> : null}
-            {formError ? <p className="wiz-error" role="alert">{formError}</p> : null}
-            <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setShowCreate(false)}>Cancel</button><button type="submit" className="primary-button" disabled={saving}>{saving ? "Saving…" : "Add Action"}</button></div>
-          </form>
-        </Modal>
+            </Field>
+          </div>
+          <Field label="Details">
+            <textarea rows={3} maxLength={500} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
+          </Field>
+          {!editing && form.runBy === "AI agent" ? <p className="wiz-hint">AI agent actions wait for an approver before they start.</p> : null}
+        </FormDrawer>
       ) : null}
 
       {selected ? (
@@ -225,6 +268,7 @@ export function ActionsPage(): JSX.Element {
           </div>
           <div className="modal-actions">
             <button type="button" className="secondary-button" onClick={() => setSelected(null)}>Close</button>
+            {canWrite ? <button type="button" className="secondary-button" onClick={() => openEdit(selected)}>Edit</button> : null}
             {canWrite ? (
               <button type="button" className="primary-button" onClick={() => void setActionStatus(selected, CLOSED.includes(selected.status) ? "Open" : "Closed")}>
                 {CLOSED.includes(selected.status) ? "Reopen Action" : "Mark Complete"}
